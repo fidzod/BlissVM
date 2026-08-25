@@ -1,7 +1,7 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     Ident(String),
     Int(i64),
@@ -14,6 +14,24 @@ pub enum Token {
     Dot,
     Newline,
     Eof,
+}
+
+impl From<Token> for &'static str {
+    fn from(tok: Token) -> Self {
+        match tok {
+            Token::Ident(_) => "ident",
+            Token::Int(_) => "int",
+            Token::Colon => "colon",
+            Token::Comma => "comma",
+            Token::LBracket => "lbracket",
+            Token::RBracket => "rbracket",
+            Token::Plus => "plus",
+            Token::Minus => "minus",
+            Token::Dot => "dot",
+            Token::Newline => "newline",
+            Token::Eof => "eof",
+        }
+    }
 }
 
 #[derive(Debug)]
