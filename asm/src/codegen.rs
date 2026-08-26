@@ -42,7 +42,7 @@ fn build_symbol_table(items: &[Item]) -> Result<HashMap<String, u32>, CodegenErr
             }
             Item::Directive { name, values } => match name.as_str() {
                 "word" => current_address += 4 * values.len() as u32,
-                "byte" => current_address += values.len() as u32,
+                "byte" | "str" => current_address += values.len() as u32,
                 _ => (),
             },
         }
@@ -166,10 +166,21 @@ fn encode_ri_instr(
     }
 }
 
-fn encode_li(mnemonic: &str, operands: &[Operand]) -> Result<Vec<u32>, CodegenError> {
+fn encode_li(mnemonic: &str, operands: &[Operand], symbols: &HashMap<String, u32>) -> Result<Vec<u32>, CodegenError> {
     check_operand_count(mnemonic, operands, 2)?;
     let dst = expect_reg(operands, 0, mnemonic)?;
-    let imm = expect_imm(operands, 1, mnemonic)?;
+    let imm = match &operands[1] {
+        Operand::Imm(i) => Ok(*i),
+        Operand::Label(name) => symbols
+            .get(name)
+            .map(|&a| a as i64)
+            .ok_or(CodegenError::UndefinedLabel(name.clone())),
+        _ => Err(CodegenError::WrongOperandType {
+            mnemonic: mnemonic.to_string(),
+            position: 1,
+            expected: "immediate or label",
+        }),
+    }?;
     Ok(vec![
         enc_ri(0x04, dst as u32, (imm & 0xFFFF) as u16),
         enc_ri(0x05, dst as u32, (imm >> 16) as u16),
@@ -269,7 +280,7 @@ fn encode_instruction(
         "ldi16" => encode_ri_instr(0x03, mnemonic, operands),
         "ldi32l" => encode_ri_instr(0x04, mnemonic, operands),
         "ldi32h" => encode_ri_instr(0x05, mnemonic, operands),
-        "li" => encode_li(mnemonic, operands),
+        "li" => encode_li(mnemonic, operands, symbols),
         "ldm8" => encode_rri_instr(0x06, mnemonic, operands),
         "ldm16" => encode_rri_instr(0x07, mnemonic, operands),
         "ldm32" => encode_rri_instr(0x08, mnemonic, operands),
@@ -311,7 +322,7 @@ fn emit(items: &[Item], symbols: &HashMap<String, u32>) -> Result<Vec<u8>, Codeg
                         current_address += 4;
                     }
                 }
-                "byte" => {
+                "byte" | "str" => {
                     for &v in values {
                         output.push(v as u8);
                         current_address += 1;

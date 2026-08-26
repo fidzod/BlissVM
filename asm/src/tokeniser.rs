@@ -5,6 +5,7 @@ use std::str::Chars;
 pub enum Token {
     Ident(String),
     Int(i64),
+    Str(String),
     Colon,
     Comma,
     LBracket,
@@ -21,6 +22,7 @@ impl From<Token> for &'static str {
         match tok {
             Token::Ident(_) => "ident",
             Token::Int(_) => "int",
+            Token::Str(_) => "string",
             Token::Colon => "colon",
             Token::Comma => "comma",
             Token::LBracket => "lbracket",
@@ -76,6 +78,10 @@ pub fn tokenise(input: &str) -> Result<Vec<LocatedToken>, TokeniserError> {
                 push_token(&mut chars, &mut tokens, Token::Newline, line);
                 line += 1;
             }
+            '"' => tokens.push(LocatedToken {
+                token: read_string(&mut chars),
+                line,
+            }),
             _ if c.is_whitespace() => {
                 chars.next();
             }
@@ -114,6 +120,27 @@ fn take_while(chars: &mut Peekable<Chars>, pred: impl Fn(char) -> bool) -> Strin
         }
     }
     s
+}
+
+fn read_string(chars: &mut Peekable<Chars>) -> Token {
+    chars.next(); // consume opening quote
+    let mut s = String::new();
+    while let Some(&c) = chars.peek() {
+        chars.next();
+        match c {
+            '"' => break,
+            '\\' => match chars.peek() {
+                Some(&'n') => { chars.next(); s.push('\n'); }
+                Some(&'t') => { chars.next(); s.push('\t'); }
+                Some(&'\\') => { chars.next(); s.push('\\'); }
+                Some(&'"') => { chars.next(); s.push('"'); }
+                Some(&'0') => { chars.next(); s.push('\0'); }
+                _ => s.push('\\'),
+            },
+            c => s.push(c),
+        }
+    }
+    Token::Str(s)
 }
 
 fn read_ident(chars: &mut Peekable<Chars>) -> Token {

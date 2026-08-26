@@ -1,11 +1,11 @@
+use crate::bus::Bus;
 use crate::error::VmError;
 use crate::instruction::Instruction;
-use crate::memory::Memory;
 use crate::register::{Register, Registers};
 
 pub struct Vm {
     registers: Registers,
-    memory: Memory,
+    bus: Bus,
 }
 
 pub enum StepResult {
@@ -17,7 +17,7 @@ impl Default for Vm {
     fn default() -> Self {
         Self {
             registers: Registers::new(),
-            memory: Memory::new(),
+            bus: Bus::new(),
         }
     }
 }
@@ -28,7 +28,7 @@ impl Vm {
     }
 
     pub fn load(&mut self, addr: u32, data: &[u8]) -> Result<(), VmError> {
-        self.memory.load(addr, data)?;
+        self.bus.load(addr, data)?;
         Ok(())
     }
 
@@ -37,7 +37,7 @@ impl Vm {
     }
 
     pub fn fetch(&mut self) -> Result<u32, VmError> {
-        let fetched = self.memory.get32(self.registers.get(Register::PC))?;
+        let fetched = self.bus.get32(self.registers.get(Register::PC))?;
         *self.registers.get_mut(Register::PC) += 4;
         Ok(fetched)
     }
@@ -72,34 +72,34 @@ impl Vm {
             }
             Instruction::Ldm8 { dst, base, offset } => {
                 let adr = self.registers.get(base) as i32 + offset;
-                *self.registers.get_mut(dst) = self.memory.get8(adr as u32)? as u32;
+                *self.registers.get_mut(dst) = self.bus.get8(adr as u32)? as u32;
                 Ok(StepResult::Continue)
             }
             Instruction::Ldm16 { dst, base, offset } => {
                 let adr = self.registers.get(base) as i32 + offset;
-                *self.registers.get_mut(dst) = self.memory.get16(adr as u32)? as u32;
+                *self.registers.get_mut(dst) = self.bus.get16(adr as u32)? as u32;
                 Ok(StepResult::Continue)
             }
             Instruction::Ldm32 { dst, base, offset } => {
                 let adr = self.registers.get(base) as i32 + offset;
-                *self.registers.get_mut(dst) = self.memory.get32(adr as u32)?;
+                *self.registers.get_mut(dst) = self.bus.get32(adr as u32)?;
                 Ok(StepResult::Continue)
             }
             Instruction::Str8 { src, base, offset } => {
                 let adr = self.registers.get(base) as i32 + offset;
-                self.memory
+                self.bus
                     .write8(adr as u32, self.registers.get(src) as u8)?;
                 Ok(StepResult::Continue)
             }
             Instruction::Str16 { src, base, offset } => {
                 let adr = self.registers.get(base) as i32 + offset;
-                self.memory
+                self.bus
                     .write16(adr as u32, self.registers.get(src) as u16)?;
                 Ok(StepResult::Continue)
             }
             Instruction::Str32 { src, base, offset } => {
                 let adr = self.registers.get(base) as i32 + offset;
-                self.memory.write32(adr as u32, self.registers.get(src))?;
+                self.bus.write32(adr as u32, self.registers.get(src))?;
                 Ok(StepResult::Continue)
             }
             Instruction::Add { dst, src1, src2 } => {
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn fetch_reads_big_endian_and_advances_pc() {
         let mut vm = Vm::new();
-        vm.memory
+        vm.bus
             .load(0, &[0x13, 0x37, 0xC0, 0xDE, 0x00, 0x00, 0x00, 0x00])
             .unwrap();
         assert_eq!(vm.fetch().unwrap(), 0x1337_C0DE);
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn execute_ldm8_zero_extends() {
         let mut vm = Vm::new();
-        vm.memory.load(0x100, &[0xFF]).unwrap();
+        vm.bus.load(0x100, &[0xFF]).unwrap();
         set_reg(&mut vm, Register::R1, 0x100);
         vm.execute(Instruction::Ldm8 {
             dst: Register::R0,
@@ -286,7 +286,7 @@ mod tests {
     #[test]
     fn execute_ldm16_zero_extends() {
         let mut vm = Vm::new();
-        vm.memory.load(0x100, &[0xBE, 0xEF]).unwrap();
+        vm.bus.load(0x100, &[0xBE, 0xEF]).unwrap();
         set_reg(&mut vm, Register::R1, 0x100);
         vm.execute(Instruction::Ldm16 {
             dst: Register::R0,
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn execute_ldm32() {
         let mut vm = Vm::new();
-        vm.memory.load(0x100, &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
+        vm.bus.load(0x100, &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
         set_reg(&mut vm, Register::R1, 0x100);
         vm.execute(Instruction::Ldm32 {
             dst: Register::R0,
@@ -314,7 +314,7 @@ mod tests {
     #[test]
     fn execute_load_with_negative_offset() {
         let mut vm = Vm::new();
-        vm.memory.load(0x100, &[0xAB]).unwrap();
+        vm.bus.load(0x100, &[0xAB]).unwrap();
         set_reg(&mut vm, Register::R1, 0x105);
         vm.execute(Instruction::Ldm8 {
             dst: Register::R0,
@@ -336,7 +336,7 @@ mod tests {
             offset: 0,
         })
         .unwrap();
-        assert_eq!(vm.memory.get8(0x100).unwrap(), 0xEF);
+        assert_eq!(vm.bus.get8(0x100).unwrap(), 0xEF);
     }
 
     #[test]
@@ -350,7 +350,7 @@ mod tests {
             offset: 0,
         })
         .unwrap();
-        assert_eq!(vm.memory.get16(0x100).unwrap(), 0xBEEF);
+        assert_eq!(vm.bus.get16(0x100).unwrap(), 0xBEEF);
     }
 
     #[test]
@@ -364,7 +364,7 @@ mod tests {
             offset: 0,
         })
         .unwrap();
-        assert_eq!(vm.memory.get32(0x100).unwrap(), 0xDEAD_BEEF);
+        assert_eq!(vm.bus.get32(0x100).unwrap(), 0xDEAD_BEEF);
     }
 
     #[test]
@@ -378,7 +378,7 @@ mod tests {
             offset: 4,
         })
         .unwrap();
-        assert_eq!(vm.memory.get8(0x104).unwrap(), 0xFF);
+        assert_eq!(vm.bus.get8(0x104).unwrap(), 0xFF);
     }
 
     #[test]

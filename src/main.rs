@@ -39,6 +39,4 @@ fn main() {
         eprintln!("Error during program execution: {:?}", e);
         std::process::exit(1)
     });
-
-    println!("Success.");
 }

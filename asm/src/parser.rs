@@ -204,6 +204,21 @@ impl Parser {
         self.advance(); // consume Dot
         let name = self.expect_ident()?;
 
+        if name == "str" {
+            let LocatedToken { token, line } = self.advance();
+            return match token {
+                Token::Str(s) => {
+                    let values = s.bytes().map(|b| b as i64).chain(std::iter::once(0)).collect();
+                    Ok(Item::Directive { name, values })
+                }
+                other => Err(ParseError::UnexpectedToken {
+                    line,
+                    got: other,
+                    expected: Some("string"),
+                }),
+            };
+        }
+
         let mut values = Vec::new();
         loop {
             match self.peek() {
