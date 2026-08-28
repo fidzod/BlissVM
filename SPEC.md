@@ -1,4 +1,4 @@
-# BlissVM Spec
+# Bliss ISA Specification
 
 ## Architecture
 
@@ -10,6 +10,48 @@
 - Memory-mapped I/O; no special I/O instructions
 - Flat 32-bit address space
 
+## Privilege Modes
+
+Two privilege levels: **user** (0) and **supervisor** (1). The current mode is tracked in
+the `mode` control register. The CPU boots in supervisor mode.
+
+Four **control registers** exist alongside the general-purpose file:
+
+| Name    | Index | Description                                         |
+|---------|-------|-----------------------------------------------------|
+| `tvec`  | 0     | Trap vector: address of the supervisor trap handler |
+| `epc`   | 1     | Exception PC: return address saved on trap          |
+| `cause` | 2     | Trap cause code (0 = syscall, …)                    |
+| `mode`  | 3     | Current privilege level (0 = user, 1 = supervisor)  |
+
+Control registers are read and written with `MFCR`/`MTCR`.
+
+### Trap flow (`ECALL`)
+
+When `ECALL` executes:
+1. `epc ← PC` (address of the instruction following `ECALL`)
+2. `cause ← 0` (syscall)
+3. `mode ← supervisor`
+4. `PC ← tvec`
+
+### Return flow (`ERET`)
+
+When `ERET` executes:
+1. `mode ← user`
+2. `PC ← epc`
+
+No registers are saved or restored automatically; that is the trap handler's responsibility.
+
+## Memory Map
+
+| Address range           | Use                             |
+|-------------------------|---------------------------------|
+| `0x0000_0000` – upper   | RAM (code and data)             |
+| `0xFFFF_0000`           | Serial TX (write byte → stdout) |
+| `0xFFFF_0004`           | Serial RX (read byte ← stdin)   |
+
+Memory protection is not implemented; user code may access any address.
+
 ## Instruction Set
 
 ### Data Movement
@@ -17,7 +59,7 @@
 - `LDI16`            — load 16-bit immediate (zero-extended)
 - `LDI32L`           — load immediate into lower 16 bits of register
 - `LDI32H`           — load immediate into upper 16 bits of register
-- `LDM8/16/32`       — load from memory into register (zero-extended)
+- `LDM8/16/32`       — load from memory into register (zero-extended for 8/16)
 - `STR8/16/32`       — store register to memory
 
 ### Arithmetic
@@ -34,6 +76,12 @@
 - `HLT`              — halt
 - `NOP`              — no operation
 
+### Privilege
+- `ECALL`            — trap from user mode to supervisor (see above)
+- `ERET`             — return from trap handler to user mode (see above)
+- `MFCR rd, <cr>`    — move from control register into general-purpose register
+- `MTCR <cr>, rs`    — move to control register from general-purpose register
+
 ## Instruction Formats
 
 All instructions are 32 bits wide. The opcode is always 6 bits [31:26].
@@ -48,8 +96,12 @@ branches (r1=rs1, r2=rs2, imm=signed PC-relative offset, ±512KB reach)
 **U — one register + large immediate** `| 6: opcode | 4: rd | 22: imm |`
 LDI16/LDI32L/LDI32H (16-bit imm, upper bits unused), BAL (22-bit signed PC-relative offset, ±8MB reach)
 
+**C — control register access** `| 6: opcode | 4: rd/cr | 4: cr/rs | 14: — |`
+MFCR (rd=destination GPR, cr=control register index 0–3),
+MTCR (cr=control register index 0–3, rs=source GPR)
+
 **N — no operands** `| 6: opcode | 26: — |`
-HLT, NOP
+HLT, NOP, ECALL, ERET
 
 ## Opcode Table
 
@@ -84,12 +136,19 @@ HLT, NOP
 |  26 | 0x1A | `BLTU`   | I      |
 |  27 | 0x1B | `BGEU`   | I      |
 |  28 | 0x1C | `BAL`    | U      |
+|  29 | 0x1D | `ECALL`  | N      |
+|  30 | 0x1E | `ERET`   | N      |
+|  31 | 0x1F | `MFCR`   | C      |
+|  32 | 0x20 | `MTCR`   | C      |
 
-Opcodes 29–63 are reserved.
+Opcodes 33–63 are reserved.
 
 ## Pseudo-instructions (assembler-expanded)
 
-- `CALL`             — push link register to stack, BAL to target
-- `RET`              — pop return address from stack into PC
-- `JMP`              — unconditional jump to label
+Implemented:
+- `LI rd, imm/label`  — load any 32-bit value; expands to `LDI32L` + `LDI32H`
 
+Planned:
+- `CALL label`        — push link register to stack, BAL to target
+- `RET`               — pop return address from stack into PC
+- `JMP label`         — unconditional jump to label
