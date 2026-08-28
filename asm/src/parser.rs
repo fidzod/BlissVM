@@ -1,13 +1,14 @@
 use std::iter::Peekable;
 use std::vec::IntoIter;
 
-use bliss::register::Register;
+use bliss::{control_regs::ControlReg, register::Register};
 
 use crate::tokeniser::{LocatedToken, Token};
 
 #[derive(Debug, PartialEq)]
 pub enum Operand {
     Reg(Register),
+    ControlReg(ControlReg),
     Imm(i64),
     MemRef { base: Register, offset: i32 },
     Label(String),
@@ -132,6 +133,16 @@ impl Parser {
         }
     }
 
+    fn parse_control_reg(cr: &str) -> Option<ControlReg> {
+        match cr {
+            "tvec" => Some(ControlReg::Tvec),
+            "epc" => Some(ControlReg::Epc),
+            "cause" => Some(ControlReg::Cause),
+            "mode" => Some(ControlReg::Mode),
+            _ => None,
+        }
+    }
+
     fn parse_memref(&mut self) -> Result<Operand, ParseError> {
         let LocatedToken { token, line } = self.advance();
         let reg = match token {
@@ -148,7 +159,10 @@ impl Parser {
         let offset: i32 = match self.peek() {
             Some(Token::RBracket) => Ok(0),
             None => Err(ParseError::UnexpectedEof),
-            Some(Token::Plus) => { self.advance(); Ok(self.expect_int()? as i32) }
+            Some(Token::Plus) => {
+                self.advance();
+                Ok(self.expect_int()? as i32)
+            }
             Some(Token::Eof) => Err(ParseError::UnexpectedEof),
             _ => Ok(self.expect_int()? as i32),
         }?;
@@ -162,7 +176,13 @@ impl Parser {
             Some(Token::Int(_)) | Some(Token::Minus) => Ok(Operand::Imm(self.expect_int()?)),
             Some(Token::Ident(_)) => {
                 let s = self.expect_ident()?;
-                Ok(Parser::parse_register(&s).map_or(Operand::Label(s), Operand::Reg))
+                if let Some(r) = Parser::parse_register(&s) {
+                    Ok(Operand::Reg(r))
+                } else if let Some(cr) = Parser::parse_control_reg(&s) {
+                    Ok(Operand::ControlReg(cr))
+                } else {
+                    Ok(Operand::Label(s))
+                }
             }
             Some(Token::LBracket) => {
                 self.advance();
@@ -171,7 +191,11 @@ impl Parser {
             None => Err(ParseError::UnexpectedEof),
             _ => {
                 let LocatedToken { token, line } = self.advance();
-                Err(ParseError::UnexpectedToken { line, got: token, expected: None })
+                Err(ParseError::UnexpectedToken {
+                    line,
+                    got: token,
+                    expected: None,
+                })
             }
         }
     }
@@ -208,7 +232,11 @@ impl Parser {
             let LocatedToken { token, line } = self.advance();
             return match token {
                 Token::Str(s) => {
-                    let values = s.bytes().map(|b| b as i64).chain(std::iter::once(0)).collect();
+                    let values = s
+                        .bytes()
+                        .map(|b| b as i64)
+                        .chain(std::iter::once(0))
+                        .collect();
                     Ok(Item::Directive { name, values })
                 }
                 other => Err(ParseError::UnexpectedToken {
@@ -223,7 +251,9 @@ impl Parser {
         loop {
             match self.peek() {
                 None | Some(Token::Newline) | Some(Token::Eof) => break,
-                Some(Token::Comma) => { self.advance(); }
+                Some(Token::Comma) => {
+                    self.advance();
+                }
                 _ => values.push(self.expect_int()?),
             }
         }
@@ -273,7 +303,11 @@ mod tests {
 
     #[test]
     fn parse_label() {
-        let tokens = vec![tok(Token::Ident("loop".into())), tok(Token::Colon), tok(Token::Eof)];
+        let tokens = vec![
+            tok(Token::Ident("loop".into())),
+            tok(Token::Colon),
+            tok(Token::Eof),
+        ];
         assert_eq!(parse(tokens).unwrap(), vec![Item::Label("loop".into())]);
     }
 
@@ -288,10 +322,17 @@ mod tests {
             tok(Token::Ident("r2".into())),
             tok(Token::Eof),
         ];
-        assert_eq!(parse(tokens).unwrap(), vec![Item::Instruction {
-            mnemonic: "add".into(),
-            operands: vec![Operand::Reg(Register::R0), Operand::Reg(Register::R1), Operand::Reg(Register::R2)],
-        }]);
+        assert_eq!(
+            parse(tokens).unwrap(),
+            vec![Item::Instruction {
+                mnemonic: "add".into(),
+                operands: vec![
+                    Operand::Reg(Register::R0),
+                    Operand::Reg(Register::R1),
+                    Operand::Reg(Register::R2)
+                ],
+            }]
+        );
     }
 
     #[test]
@@ -305,10 +346,13 @@ mod tests {
             tok(Token::Int(2)),
             tok(Token::Eof),
         ];
-        assert_eq!(parse(tokens).unwrap(), vec![Item::Directive {
-            name: "word".into(),
-            values: vec![1, -2],
-        }]);
+        assert_eq!(
+            parse(tokens).unwrap(),
+            vec![Item::Directive {
+                name: "word".into(),
+                values: vec![1, -2],
+            }]
+        );
     }
 
     #[test]
@@ -324,12 +368,18 @@ mod tests {
             tok(Token::RBracket),
             tok(Token::Eof),
         ];
-        assert_eq!(parse(tokens).unwrap(), vec![Item::Instruction {
-            mnemonic: "ldm32".into(),
-            operands: vec![
-                Operand::Reg(Register::R0),
-                Operand::MemRef { base: Register::R1, offset: -4 },
-            ],
-        }]);
+        assert_eq!(
+            parse(tokens).unwrap(),
+            vec![Item::Instruction {
+                mnemonic: "ldm32".into(),
+                operands: vec![
+                    Operand::Reg(Register::R0),
+                    Operand::MemRef {
+                        base: Register::R1,
+                        offset: -4
+                    },
+                ],
+            }]
+        );
     }
 }

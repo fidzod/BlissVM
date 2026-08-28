@@ -1,5 +1,5 @@
 use crate::bus::Bus;
-use crate::control_regs::{ControlReg, ControlRegs};
+use crate::control_regs::{ControlReg, ControlRegs, Mode};
 use crate::error::VmError;
 use crate::instruction::Instruction;
 use crate::register::{Register, Registers};
@@ -37,6 +37,14 @@ impl Vm {
 
     pub fn reg(&self, register: Register) -> u32 {
         self.registers.get(register)
+    }
+
+    pub fn ctrl_reg(&self, ctrl_reg: ControlReg) -> u32 {
+        self.ctrl.get(ctrl_reg)
+    }
+
+    pub fn mode(&self) -> Mode {
+        self.ctrl.mode()
     }
 
     pub fn fetch(&mut self) -> Result<u32, VmError> {

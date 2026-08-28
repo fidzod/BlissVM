@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bliss::register::Register;
+use bliss::{control_regs::ControlReg, register::Register};
 
 use crate::parser::{Item, Operand};
 
@@ -78,6 +78,21 @@ fn expect_reg(operands: &[Operand], pos: usize, mnemonic: &str) -> Result<Regist
     }
 }
 
+fn expect_ctrl_reg(
+    operands: &[Operand],
+    pos: usize,
+    mnemonic: &str,
+) -> Result<ControlReg, CodegenError> {
+    match &operands[pos] {
+        Operand::ControlReg(r) => Ok(*r),
+        _ => Err(CodegenError::WrongOperandType {
+            mnemonic: mnemonic.to_string(),
+            position: pos,
+            expected: "control register",
+        }),
+    }
+}
+
 fn expect_imm(operands: &[Operand], pos: usize, mnemonic: &str) -> Result<i64, CodegenError> {
     match &operands[pos] {
         Operand::Imm(i) => Ok(*i),
@@ -118,6 +133,12 @@ fn enc_rri(op: u32, a: u32, b: u32, offset: i32) -> u32 {
 }
 fn enc_bal(link: u32, offset: i32) -> u32 {
     (0x1C_u32 << 26) | (link << 22) | ((offset as u32) & 0x3F_FFFF)
+}
+fn enc_mfcr(rd: u32, cr: u32) -> u32 {
+    (0x1F << 26) | (rd << 22) | (cr << 18)
+}
+fn enc_mtcr(cr: u32, rs: u32) -> u32 {
+    (0x20 << 26) | (cr << 22) | (rs << 18)
 }
 
 fn encode_rrr_instr(
@@ -166,7 +187,11 @@ fn encode_ri_instr(
     }
 }
 
-fn encode_li(mnemonic: &str, operands: &[Operand], symbols: &HashMap<String, u32>) -> Result<Vec<u32>, CodegenError> {
+fn encode_li(
+    mnemonic: &str,
+    operands: &[Operand],
+    symbols: &HashMap<String, u32>,
+) -> Result<Vec<u32>, CodegenError> {
     check_operand_count(mnemonic, operands, 2)?;
     let dst = expect_reg(operands, 0, mnemonic)?;
     let imm = match &operands[1] {
@@ -267,6 +292,20 @@ fn encode_bal(
     }
 }
 
+fn encode_mfcr(mnemonic: &str, operands: &[Operand]) -> Result<Vec<u32>, CodegenError> {
+    check_operand_count(mnemonic, operands, 2)?;
+    let rd = expect_reg(operands, 0, mnemonic)?;
+    let cr = expect_ctrl_reg(operands, 1, mnemonic)?;
+    Ok(vec![enc_mfcr(rd as u32, cr as u32)])
+}
+
+fn encode_mtcr(mnemonic: &str, operands: &[Operand]) -> Result<Vec<u32>, CodegenError> {
+    check_operand_count(mnemonic, operands, 2)?;
+    let cr = expect_ctrl_reg(operands, 0, mnemonic)?;
+    let rs = expect_reg(operands, 1, mnemonic)?;
+    Ok(vec![enc_mtcr(cr as u32, rs as u32)])
+}
+
 fn encode_instruction(
     mnemonic: &str,
     operands: &[Operand],
@@ -304,6 +343,10 @@ fn encode_instruction(
         "bltu" => encode_branch(0x1A, mnemonic, operands, current_address, symbols),
         "bgeu" => encode_branch(0x1B, mnemonic, operands, current_address, symbols),
         "bal" => encode_bal(mnemonic, operands, current_address, symbols),
+        "ecall" => encode_nullary(0x1D, mnemonic, operands),
+        "eret" => encode_nullary(0x1E, mnemonic, operands),
+        "mfcr" => encode_mfcr(mnemonic, operands),
+        "mtcr" => encode_mtcr(mnemonic, operands),
         _ => Err(CodegenError::UnknownMnemonic(mnemonic.to_string())),
     }
 }
@@ -364,6 +407,10 @@ mod tests {
         Operand::Reg(r)
     }
 
+    fn ctrl_reg(cr: ControlReg) -> Operand {
+        Operand::ControlReg(cr)
+    }
+
     fn imm(i: i64) -> Operand {
         Operand::Imm(i)
     }
@@ -392,9 +439,37 @@ mod tests {
     fn encode_add() {
         let items = vec![instr(
             "add",
-            vec![reg(Register::R2), reg(Register::R0), reg(Register::R1)],
+            vec![reg(Register::R2), reg(Register::R3), reg(Register::R1)],
         )];
-        let expected = (0x0C_u32 << 26) | (2 << 22) | (0 << 18) | (1 << 14);
+        let expected = (0x0C_u32 << 26) | (2 << 22) | (3 << 18) | (1 << 14);
+        assert_eq!(codegen(&items).unwrap(), bytes_of(&[expected]));
+    }
+
+    #[test]
+    fn encode_ecall() {
+        assert_eq!(
+            codegen(&[instr("ecall", vec![])]).unwrap(),
+            bytes_of(&[0x1D << 26])
+        );
+    }
+
+    #[test]
+    fn encode_mfcr() {
+        let items = vec![instr(
+            "mfcr",
+            vec![reg(Register::R1), ctrl_reg(ControlReg::Cause)],
+        )];
+        let expected = (0x1F << 26) | (1 << 22) | (2 << 18);
+        assert_eq!(codegen(&items).unwrap(), bytes_of(&[expected]));
+    }
+
+    #[test]
+    fn encode_mtcr() {
+        let items = vec![instr(
+            "mtcr",
+            vec![ctrl_reg(ControlReg::Cause), reg(Register::R1)],
+        )];
+        let expected = (0x20 << 26) | (2 << 22) | (1 << 18);
         assert_eq!(codegen(&items).unwrap(), bytes_of(&[expected]));
     }
 
@@ -432,10 +507,7 @@ mod tests {
             name: "word".to_string(),
             values: vec![0xDEAD_BEEF],
         }];
-        assert_eq!(
-            codegen(&items).unwrap(),
-            vec![0xDE, 0xAD, 0xBE, 0xEF]
-        );
+        assert_eq!(codegen(&items).unwrap(), vec![0xDE, 0xAD, 0xBE, 0xEF]);
     }
 
     #[test]
@@ -467,13 +539,20 @@ mod tests {
         let items = vec![instr("add", vec![reg(Register::R0)])];
         assert!(matches!(
             codegen(&items),
-            Err(CodegenError::WrongNumberOfOperands { expected: 3, got: 1, .. })
+            Err(CodegenError::WrongNumberOfOperands {
+                expected: 3,
+                got: 1,
+                ..
+            })
         ));
     }
 
     #[test]
     fn error_wrong_operand_type() {
-        let items = vec![instr("add", vec![imm(0), reg(Register::R0), reg(Register::R1)])];
+        let items = vec![instr(
+            "add",
+            vec![imm(0), reg(Register::R0), reg(Register::R1)],
+        )];
         assert!(matches!(
             codegen(&items),
             Err(CodegenError::WrongOperandType { position: 0, .. })

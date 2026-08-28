@@ -1,4 +1,5 @@
 use asm::assemble;
+use bliss::control_regs::Mode;
 use bliss::instruction::Instruction;
 use bliss::register::Register;
 use bliss::vm::{StepResult, Vm};
@@ -81,4 +82,22 @@ fn store_and_load_roundtrip() {
     ";
     let vm = run_to_halt(&assemble(src).unwrap());
     assert_eq!(vm.reg(Register::R2), 0xABCD);
+}
+
+#[test]
+fn ecall_eret_mfcr_mtcr() {
+    let src = "
+        li r0, th
+        mtcr tvec, r0
+        ecall
+        hlt
+
+        th:
+          mfcr r1, epc
+          eret
+    ";
+    let vm = run_to_halt(&assemble(src).unwrap());
+    assert_eq!(vm.reg(Register::R1), 16);
+    assert_eq!(vm.reg(Register::PC), 20);
+    assert_eq!(vm.mode(), Mode::User);
 }
