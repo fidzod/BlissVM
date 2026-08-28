@@ -1,3 +1,4 @@
+use crate::control_regs::ControlReg;
 use crate::error::VmError;
 use crate::register::Register;
 
@@ -134,6 +135,16 @@ pub enum Instruction {
         link: Register,
         offset: i32,
     },
+    Ecall,
+    Eret,
+    Mfcr {
+        rd: Register,
+        cr: ControlReg,
+    },
+    Mtcr {
+        cr: ControlReg,
+        rs: Register,
+    },
 }
 
 impl Instruction {
@@ -142,6 +153,10 @@ impl Instruction {
 
         fn reg(i: u32, pos: u32) -> Register {
             Register::try_from((i >> pos) & 0xF).expect("register field masked to 4 bits")
+        }
+
+        fn ctrl_reg(i: u32, pos: u32) -> ControlReg {
+            ControlReg::try_from((i >> pos) & 0x3).expect("control register field masked to 2 bits")
         }
 
         fn i18(i: u32) -> i32 {
@@ -293,12 +308,20 @@ impl Instruction {
                 rhs: rs1(i),
                 offset: i18(i),
             }),
-
             0x1C => Ok(Instruction::Bal {
                 link: rd(i),
                 offset: ((i << 10) as i32) >> 10,
             }),
-
+            0x1D => Ok(Instruction::Ecall),
+            0x1E => Ok(Instruction::Eret),
+            0x1F => Ok(Instruction::Mfcr {
+                rd: reg(i, 22),
+                cr: ctrl_reg(i, 18),
+            }),
+            0x20 => Ok(Instruction::Mtcr {
+                cr: ctrl_reg(i, 22),
+                rs: reg(i, 18),
+            }),
             _ => Err(VmError::UnknownOpcode(opcode as u8)),
         }
     }
@@ -323,6 +346,12 @@ mod tests {
     }
     fn enc_bal(link: u32, offset: i32) -> u32 {
         (0x1C_u32 << 26) | (link << 22) | ((offset as u32) & 0x3F_FFFF)
+    }
+    fn enc_mfcr(rd: u32, cr: u32) -> u32 {
+        (0x1F << 26) | (rd << 22) | (cr << 18)
+    }
+    fn enc_mtcr(cr: u32, rd: u32) -> u32 {
+        (0x20 << 26) | (cr << 22) | (rd << 18)
     }
 
     const HLT: u32 = 0;
@@ -685,5 +714,37 @@ mod tests {
                 offset: -8
             })
         );
+    }
+
+    #[test]
+    fn decode_ecall() {
+        assert_eq!(Instruction::decode(0x1D << 26), Ok(Instruction::Ecall));
+    }
+
+    #[test]
+    fn decode_eret() {
+        assert_eq!(Instruction::decode(0x1E << 26), Ok(Instruction::Eret));
+    }
+
+    #[test]
+    fn decode_mfcr() {
+        assert_eq!(
+            Instruction::decode(enc_mfcr(0, 2)),
+            Ok(Instruction::Mfcr {
+                rd: Register::R0,
+                cr: ControlReg::Cause
+            })
+        )
+    }
+
+    #[test]
+    fn decode_mtcr() {
+        assert_eq!(
+            Instruction::decode(enc_mtcr(2, 0)),
+            Ok(Instruction::Mtcr {
+                cr: ControlReg::Cause,
+                rs: Register::R0
+            })
+        )
     }
 }

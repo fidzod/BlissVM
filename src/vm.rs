@@ -1,5 +1,5 @@
 use crate::bus::Bus;
-use crate::control_regs::ControlRegs;
+use crate::control_regs::{ControlReg, ControlRegs};
 use crate::error::VmError;
 use crate::instruction::Instruction;
 use crate::register::{Register, Registers};
@@ -195,6 +195,26 @@ impl Vm {
                 *self.registers.get_mut(link) = self.registers.get(Register::PC);
                 *self.registers.get_mut(Register::PC) = self.branch_target(offset);
                 Ok(StepResult::Continue)
+            },
+            Instruction::Ecall => {
+                *self.ctrl.get_mut(ControlReg::Epc) = self.registers.get(Register::PC);
+                *self.ctrl.get_mut(ControlReg::Cause) = 0;
+                *self.ctrl.get_mut(ControlReg::Mode) = 1;
+                *self.registers.get_mut(Register::PC) = self.ctrl.get(ControlReg::Tvec);
+                Ok(StepResult::Continue)
+            },
+            Instruction::Eret => {
+                *self.ctrl.get_mut(ControlReg::Mode) = 0;
+                *self.registers.get_mut(Register::PC) = self.ctrl.get(ControlReg::Epc);
+                Ok(StepResult::Continue)
+            },
+            Instruction::Mfcr { rd, cr } => {
+                *self.registers.get_mut(rd) = self.ctrl.get(cr);
+                Ok(StepResult::Continue)
+            },
+            Instruction::Mtcr { cr, rs } => {
+                *self.ctrl.get_mut(cr) = self.registers.get(rs);
+                Ok(StepResult::Continue)
             }
         }
     }
@@ -202,7 +222,9 @@ impl Vm {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::control_regs::Mode;
+
+use super::*;
 
     fn reg(vm: &Vm, r: Register) -> u32 {
         vm.registers.get(r)
@@ -777,5 +799,34 @@ mod tests {
         .unwrap();
         assert_eq!(reg(&vm, Register::LR), 8); // saved before jump
         assert_eq!(reg(&vm, Register::PC), 20); // 8 - 4 + 16
+    }
+
+    #[test]
+    fn execute_ecall() {
+        let mut vm = Vm::new();
+        *vm.ctrl.get_mut(ControlReg::Tvec) = 0xFAFA;
+        // PC=4: simulates fetch having advanced from instruction at addr 0
+        set_reg(&mut vm, Register::PC, 4);
+        vm.execute(Instruction::Ecall).unwrap();
+        assert_eq!(reg(&vm, Register::PC), 0xFAFA);
+        assert_eq!(vm.ctrl.get(ControlReg::Epc), 4);
+    }
+
+    #[test]
+    fn execute_eret() {
+        let mut vm = Vm::new();
+        *vm.ctrl.get_mut(ControlReg::Epc) = 0xFAFA;
+        vm.execute(Instruction::Eret).unwrap();
+        assert_eq!(reg(&vm, Register::PC), 0xFAFA);
+        assert_eq!(vm.ctrl.mode(), Mode::User);
+    }
+
+    #[test]
+    fn execute_mfcr_mtcr() {
+        let mut vm = Vm::new();
+        *vm.registers.get_mut(Register::R0) = 0xBE;
+        vm.execute(Instruction::Mtcr { cr: ControlReg::Tvec, rs: Register::R0 }).unwrap();
+        vm.execute(Instruction::Mfcr { rd: Register::R1, cr: ControlReg::Tvec }).unwrap();
+        assert_eq!(reg(&vm, Register::R0), reg(&vm, Register::R1));
     }
 }
