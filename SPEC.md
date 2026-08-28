@@ -49,6 +49,9 @@ No registers are saved or restored automatically; that is the trap handler's res
 | `0x0000_0000` – upper   | RAM (code and data)             |
 | `0xFFFF_0000`           | Serial TX (write byte → stdout) |
 | `0xFFFF_0004`           | Serial RX (read byte ← stdin)   |
+| `0xFFFF_0010`           | Disk sector                     |
+| `0xFFFF_0014`           | Disk buffer                     |
+| `0xFFFF_0018`           | Disk command (0 - read)         |
 
 Memory protection is not implemented; user code may access any address.
 
@@ -152,3 +155,66 @@ Planned:
 - `CALL label`        — push link register to stack, BAL to target
 - `RET`               — pop return address from stack into PC
 - `JMP label`         — unconditional jump to label
+
+## Assembler Directives
+
+| Directive        | Description                                              |
+|------------------|----------------------------------------------------------|
+| `.byte v, …`     | Emit one byte per value                                  |
+| `.word v, …`     | Emit one 32-bit big-endian word per value                |
+| `.str "…"`       | Emit string bytes + null terminator                      |
+| `.org addr`      | Set the address counter (affects label resolution only)  |
+
+## Filesystem
+
+**BlissFS** — a minimal custom filesystem for the Bliss storage device.
+
+### Parameters
+
+| Property          | Value                    |
+|-------------------|--------------------------|
+| Block size        | 512 bytes (= one sector) |
+| Magic number      | `0xB2155F2D`             |
+| Max inodes        | 32                       |
+| Max filename      | 24 bytes (null-padded)   |
+| Max file size     | 8 × 512 = 4096 bytes     |
+
+### Disk layout
+
+```
+Block 0:      Superblock
+Blocks 1–4:   Inode table  (32 inodes × 64 bytes = 2048 bytes)
+Block 5:      Free-block bitmap
+Block 6+:     Data blocks
+```
+
+### Superblock (block 0, first 20 bytes)
+
+| Offset | Size | Field                |
+|--------|------|----------------------|
+| 0      | 4    | Magic (`0xB2155F2D`) |
+| 4      | 4    | Block size (512)     |
+| 8      | 4    | Inode count (32)     |
+| 12     | 4    | Data start block (6) |
+| 16     | 4    | Free block count     |
+
+### Inode (64 bytes)
+
+| Offset | Size | Field                                         |
+|--------|------|-----------------------------------------------|
+| 0      | 4    | File size in bytes                            |
+| 4      | 1    | Type: 0 = unused, 1 = file, 2 = directory     |
+| 5      | 3    | Reserved                                      |
+| 8      | 32   | 8 × 4-byte direct block pointers (0 = unused) |
+| 40     | 24   | Reserved                                      |
+
+Inode 0 is reserved (null). Inode 1 is the root directory.
+
+### Directory entry (28 bytes)
+
+| Offset | Size | Field                                  |
+|--------|------|----------------------------------------|
+| 0      | 24   | Filename, null-padded                  |
+| 24     | 4    | Inode number (0 = empty slot)          |
+
+18 directory entries fit per block (18 × 28 = 504 bytes; 8 bytes unused).

@@ -20,9 +20,9 @@ load/store architecture, 16 general-purpose registers, comparison-in-branch
 | Assembler         | Working     |
 | MMIO serial port  | Working     |
 | Privilege / traps | Working     |
-| OS kernel         | In Progress |
-| Storage device    | In Progress |
-| Filesystem        | Planned     |
+| OS kernel         | Working     |
+| Storage device    | Working     |
+| Filesystem        | In Progress |
 | Shell             | Planned     |
 
 ## Crates
