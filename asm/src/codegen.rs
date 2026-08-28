@@ -43,6 +43,7 @@ fn build_symbol_table(items: &[Item]) -> Result<HashMap<String, u32>, CodegenErr
             Item::Directive { name, values } => match name.as_str() {
                 "word" => current_address += 4 * values.len() as u32,
                 "byte" | "str" => current_address += values.len() as u32,
+                "org" => current_address = values[0] as u32,
                 _ => (),
             },
         }
@@ -370,6 +371,9 @@ fn emit(items: &[Item], symbols: &HashMap<String, u32>) -> Result<Vec<u8>, Codeg
                         output.push(v as u8);
                         current_address += 1;
                     }
+                }
+                "org" => {
+                    current_address = values[0] as u32;
                 }
                 _ => return Err(CodegenError::UnknownDirective(name.clone())),
             },

@@ -4,16 +4,20 @@ kernel_start:
   li r0, trap_handler             ; install trap handler
   mtcr tvec, r0
 
-  li r0, user_start               ; drop to user mode
-  mtcr epc, r0
-  eret
+  li r0, 0xFFFF0010               ; load program
+  li r1, 0                        ; disk_sector = 0
+  str32 r1, [r0]
 
-user_start:
-  ldi16 r0, 1                     ; r0 = 1 (write)
-  li r1, msg                      ; r1 = pointer to string
-  li r2, 22                       ; r2 = byte count
-  ecall
-  hlt
+  li r0, 0xFFFF0014               ; disk_buffer = 0x2000
+  li r2, 0x2000
+  str16 r2, [r0]
+
+  li r0, 0xFFFF0018               ; trigger load sector
+  li r1, 0
+  str8 r1, [r0]
+
+  mtcr epc, r2                    ; drop into user mode
+  eret
 
 trap_handler:                     ; assume write syscall for now since we only
   li r3, 0xFFFF0000               ; have one kind of trap
@@ -28,6 +32,3 @@ trap_handler:                     ; assume write syscall for now since we only
     bne r4, r2, loop              ; loop if counter != byte count
 
   eret
-
-msg:
-  .str "Hello from user mode!\n"
