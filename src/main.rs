@@ -35,6 +35,14 @@ fn main() {
         std::process::exit(1)
     });
 
+    if let Some(disk_path) = std::env::args().nth(2) {
+        let disk_data = fs::read(disk_path.clone()).unwrap_or_else(|e| {
+            eprintln!("Failed to read disk {}: {}", disk_path, e);
+            std::process::exit(1)
+        });
+        vm.load_disk(disk_data);
+    }
+
     run(&mut vm).unwrap_or_else(|e| {
         eprintln!("Error during program execution: {:?}", e);
         std::process::exit(1)

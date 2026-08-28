@@ -226,6 +226,10 @@ impl Vm {
             }
         }
     }
+
+    pub fn load_disk(&mut self, data: Vec<u8>) {
+        self.bus.attach_storage(data);
+    }
 }
 
 #[cfg(test)]
