@@ -1,4 +1,5 @@
 use crate::bus::Bus;
+use crate::control_regs::ControlRegs;
 use crate::error::VmError;
 use crate::instruction::Instruction;
 use crate::register::{Register, Registers};
@@ -6,6 +7,7 @@ use crate::register::{Register, Registers};
 pub struct Vm {
     registers: Registers,
     bus: Bus,
+    ctrl: ControlRegs,
 }
 
 pub enum StepResult {
@@ -18,6 +20,7 @@ impl Default for Vm {
         Self {
             registers: Registers::new(),
             bus: Bus::new(),
+            ctrl: ControlRegs::new(),
         }
     }
 }
