@@ -12,3 +12,10 @@ dependencies = [
 [[package]]
 name = "bliss"
 version = "0.1.0"
+
+[[package]]
+name = "blissfs"
+version = "0.1.0"
+dependencies = [
+ "bliss",
+]
