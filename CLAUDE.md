@@ -40,5 +40,32 @@ is.
 3. ✅ MMIO serial device
 4. ✅ Minimal OS kernel with write syscall
 5. ✅ Storage device + disk loader
-6. 🔄 Filesystem (BlissFS)
-7. Interactive shell (Ikari)
+6. ✅ Filesystem (BlissFS)
+7. 🔄 Interactive shell (Ikari)
+
+## Current Focus
+
+The next goal is Ikari — an interactive shell that reads commands from serial
+input and executes them. Before writing the shell itself, two prerequisites are
+worth addressing first:
+
+**Stack + calling convention.** Complex assembly needs proper subroutine calls.
+`r14` is the link register by convention; `r13` is the stack pointer. We need a
+stack initialised at boot and a simple convention so `BAL`/`RET` can be used
+without clobbering live values.
+
+**Proper syscall dispatch.** The trap handler currently assumes every trap is a
+write syscall. A real dispatcher reads `cause` and `r0` (syscall number) and
+branches to the right handler. The shell needs at minimum write (1) and read (2)
+— read blocking on a byte from the serial RX port.
+
+Once those two are in place, the shell can be built without running into dead
+ends. After the shell is working, remaining loose ends to address include:
+
+- Exception handling (invalid instruction, out-of-bounds, etc.)
+- Assembly imports/includes for a small standard library (division, string ops)
+- A cleaner kernel boot model (the current kernel is instructive but rough)
+- Memory protection — user code can currently access any address including MMIO
+  and kernel memory; worth adding once the shell gives us something worth protecting
+- Gendo — a small compiled language targeting the Bliss ISA; a natural next step
+  once the full stack (VM, assembler, OS, shell) is solid

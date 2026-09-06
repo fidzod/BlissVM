@@ -22,8 +22,8 @@ load/store architecture, 16 general-purpose registers, comparison-in-branch
 | Privilege / traps | Working     |
 | OS kernel         | Working     |
 | Storage device    | Working     |
-| Filesystem        | In Progress |
-| Shell             | Planned     |
+| Filesystem        | Working     |
+| Shell             | In Progress |
 
 ## Crates
 
