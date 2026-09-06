@@ -8,7 +8,7 @@ pub struct Superblock {
     block_size: u32,
     inode_count: u32,
     data_start: u32,
-    free_blocks: u32,
+    pub free_blocks: u32,
 }
 
 fn write(bytes: &mut [u8], offset: &mut usize, src: &[u8]) {
@@ -188,6 +188,11 @@ impl DirEntry {
             filename: read_bytes(bytes, &mut offset),
             inode: read_u32(bytes, &mut offset)
         })
+    }
+
+    pub fn filename(&self) -> &str {
+        let len = self.filename.iter().position(|&b| b == 0).unwrap_or(24);
+        std::str::from_utf8(&self.filename[..len]).expect("filename should be valid UTF-8")
     }
 }
 
