@@ -1,6 +1,7 @@
-use crate::{error::FsError};
+use crate::error::FsError;
 
 const MAGIC_NUMBER: u32 = 0xB2155F2D;
+pub const BLOCK_SIZE: u32 = 512;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Superblock {
@@ -34,6 +35,15 @@ fn read_bytes<const N: usize>(bytes: &[u8], offset: &mut usize) -> [u8; N] {
 }
 
 impl Superblock {
+    pub fn new(block_count: u32) -> Self {
+        Self {
+            block_size: BLOCK_SIZE,
+            inode_count: 32,
+            data_start: 6,
+            free_blocks: block_count
+        }
+    }
+
     pub fn to_bytes(&self) -> [u8; 20] {
         let mut bytes = [0u8; 20];
         let mut offset = 0;
@@ -88,12 +98,20 @@ impl TryFrom<u8> for InodeType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Inode {
-    size: u32,
-    kind: InodeType,
-    block_pointers: [u32; 8],
+    pub size: u32,
+    pub kind: InodeType,
+    pub block_pointers: [u32; 8],
 }
 
 impl Inode {
+    pub fn new(kind: InodeType) -> Self {
+        Self {
+            size: 0,
+            kind,
+            block_pointers: [0u32; 8]
+        }
+    }
+
     pub fn to_bytes(&self) -> [u8; 64] {
         let mut bytes = [0u8; 64];
         let mut offset = 0;
@@ -134,10 +152,25 @@ impl Inode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DirEntry {
     filename: [u8; 24],
-    inode: u32,
+    pub inode: u32,
 }
 
 impl DirEntry {
+    pub fn new(filename: String, inode: u32) -> Result<Self, FsError> {
+        if filename.len() > 24 {
+            return Err(FsError::NameTooLong(filename))
+        }
+
+        Ok(Self {
+            filename: {
+                let mut buf = [0u8; 24];
+                buf[..filename.len()].copy_from_slice(filename.as_bytes());
+                buf
+            },
+            inode
+        })
+    }
+
     pub fn to_bytes(&self) -> [u8; 28] {
         let mut bytes = [0u8; 28];
         let mut offset = 0;
