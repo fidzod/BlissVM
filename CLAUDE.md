@@ -49,15 +49,18 @@ The next goal is Ikari — an interactive shell that reads commands from serial
 input and executes them. Before writing the shell itself, two prerequisites are
 worth addressing first:
 
-**Stack + calling convention.** Complex assembly needs proper subroutine calls.
-`r14` is the link register by convention; `r13` is the stack pointer. We need a
-stack initialised at boot and a simple convention so `BAL`/`RET` can be used
-without clobbering live values.
+**Stack + calling convention (Phase 1 — in progress).** The ISA needs one new
+instruction, `BALR rd, rs` (branch-and-link to register), to make subroutine
+returns possible. Once that is in the VM and assembler, five pseudo-instructions
+follow: `PUSH`, `POP`, `CALL`, `RET`, and `JMP`. The kernel then initialises SP
+to `0x1FFC` at boot. Register convention: r0 is assembler scratch (always
+clobberable), r1–r7 are caller-saved, r8–r12 are callee-saved, r13 is SP,
+r14 is LR. Full details in SPEC.md.
 
-**Proper syscall dispatch.** The trap handler currently assumes every trap is a
-write syscall. A real dispatcher reads `cause` and `r0` (syscall number) and
-branches to the right handler. The shell needs at minimum write (1) and read (2)
-— read blocking on a byte from the serial RX port.
+**Proper syscall dispatch (Phase 2).** The trap handler currently assumes every
+trap is a write syscall. A real dispatcher reads `cause` and `r0` (syscall
+number) and branches to the right handler. The shell needs at minimum write (1)
+and read (2) — read blocking on a byte from the serial RX port.
 
 Once those two are in place, the shell can be built without running into dead
 ends. After the shell is working, remaining loose ends to address include:
