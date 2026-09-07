@@ -37,6 +37,11 @@ fn build_symbol_table(items: &[Item]) -> Result<HashMap<String, u32>, CodegenErr
             Item::Instruction { mnemonic, .. } => {
                 current_address += match mnemonic.as_str() {
                     "li" => 8,
+                    "push" => 12,
+                    "pop" => 12,
+                    "call" => 16,
+                    "ret" => 16,
+                    "jmp" => 4,
                     _ => 4,
                 }
             }
@@ -213,6 +218,98 @@ fn encode_li(
     ])
 }
 
+fn encode_push(mnemonic: &str, operands: &[Operand]) -> Result<Vec<u32>, CodegenError> {
+    check_operand_count(mnemonic, operands, 1)?;
+    let rs = expect_reg(operands, 0, mnemonic)?;
+    Ok(vec![
+        enc_ri(0x03, Register::R0 as u32, 4u16),
+        enc_rrr(
+            0x0D,
+            Register::SP as u32,
+            Register::SP as u32,
+            Register::R0 as u32,
+        ),
+        enc_rri(0x0B, rs as u32, Register::SP as u32, 0i32),
+    ])
+}
+
+fn encode_pop(mnemonic: &str, operands: &[Operand]) -> Result<Vec<u32>, CodegenError> {
+    check_operand_count(mnemonic, operands, 1)?;
+    let rd = expect_reg(operands, 0, mnemonic)?;
+    Ok(vec![
+        enc_rri(0x08, rd as u32, Register::SP as u32, 0i32),
+        enc_ri(0x03, Register::R0 as u32, 4u16),
+        enc_rrr(
+            0x0C,
+            Register::SP as u32,
+            Register::SP as u32,
+            Register::R0 as u32,
+        ),
+    ])
+}
+
+fn encode_call(
+    mnemonic: &str,
+    operands: &[Operand],
+    symbols: &HashMap<String, u32>,
+    current_address: u32,
+) -> Result<Vec<u32>, CodegenError> {
+    check_operand_count(mnemonic, operands, 1)?;
+    let target_address = match &operands[0] {
+        Operand::Label(name) => symbols
+            .get(name)
+            .ok_or(CodegenError::UndefinedLabel(name.clone())),
+        _ => Err(CodegenError::WrongOperandType {
+            mnemonic: mnemonic.to_string(),
+            position: 0,
+            expected: "label",
+        }),
+    }?;
+    Ok([
+        encode_push("push", &[Operand::Reg(Register::LR)]).expect("operand is a valid register"),
+        vec![enc_bal(
+            Register::LR as u32,
+            *target_address as i32 - (current_address + 12) as i32,
+        )],
+    ]
+    .concat())
+}
+
+fn encode_ret(mnemonic: &str, operands: &[Operand]) -> Result<Vec<u32>, CodegenError> {
+    check_operand_count(mnemonic, operands, 0)?;
+    Ok([
+        encode_pop("pop", &[Operand::Reg(Register::LR)]).expect("operand is a valid register"),
+        vec![enc_rr(0x21, Register::R0 as u32, Register::LR as u32)],
+    ]
+    .concat())
+}
+
+fn encode_jmp(
+    mnemonic: &str,
+    operands: &[Operand],
+    symbols: &HashMap<String, u32>,
+    current_address: u32,
+) -> Result<Vec<u32>, CodegenError> {
+    check_operand_count(mnemonic, operands, 1)?;
+    match &operands[0] {
+        Operand::Label(name) => symbols
+            .get(name)
+            .map(|&target| {
+                vec![enc_bal(
+                    Register::R0 as u32,
+                    target as i32 - current_address as i32,
+                )]
+            })
+            .ok_or(CodegenError::UndefinedLabel(name.clone())),
+        Operand::Reg(rs) => Ok(vec![enc_rr(0x21, Register::R0 as u32, *rs as u32)]),
+        _ => Err(CodegenError::WrongOperandType {
+            mnemonic: mnemonic.to_string(),
+            position: 0,
+            expected: "label or register",
+        }),
+    }
+}
+
 fn encode_rri_instr(
     op: u32,
     mnemonic: &str,
@@ -348,6 +445,12 @@ fn encode_instruction(
         "eret" => encode_nullary(0x1E, mnemonic, operands),
         "mfcr" => encode_mfcr(mnemonic, operands),
         "mtcr" => encode_mtcr(mnemonic, operands),
+        "balr" => encode_rr_instr(0x21, mnemonic, operands),
+        "push" => encode_push(mnemonic, operands),
+        "pop" => encode_pop(mnemonic, operands),
+        "call" => encode_call(mnemonic, operands, symbols, current_address),
+        "ret" => encode_ret(mnemonic, operands),
+        "jmp" => encode_jmp(mnemonic, operands, symbols, current_address),
         _ => Err(CodegenError::UnknownMnemonic(mnemonic.to_string())),
     }
 }

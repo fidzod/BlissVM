@@ -223,6 +223,11 @@ impl Vm {
             Instruction::Mtcr { cr, rs } => {
                 *self.ctrl.get_mut(cr) = self.registers.get(rs);
                 Ok(StepResult::Continue)
+            },
+            Instruction::Balr { link, target } => {
+                *self.registers.get_mut(link) = self.registers.get(Register::PC);
+                *self.registers.get_mut(Register::PC) = self.registers.get(target);
+                Ok(StepResult::Continue)
             }
         }
     }

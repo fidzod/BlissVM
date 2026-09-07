@@ -145,10 +145,14 @@ pub enum Instruction {
         cr: ControlReg,
         rs: Register,
     },
+    Balr {
+        link: Register,
+        target: Register,
+    }
 }
 
 impl Instruction {
-    pub fn decode(i: u32) -> Result<Instruction, VmError> {
+pub fn decode(i: u32) -> Result<Instruction, VmError> {
         let opcode = i >> (32 - 6);
 
         fn reg(i: u32, pos: u32) -> Register {
@@ -321,6 +325,10 @@ impl Instruction {
             0x20 => Ok(Instruction::Mtcr {
                 cr: ctrl_reg(i, 22),
                 rs: reg(i, 18),
+            }),
+            0x21 => Ok(Instruction::Balr {
+                link: rd(i),
+                target: rs1(i)
             }),
             _ => Err(VmError::UnknownOpcode(opcode as u8)),
         }
