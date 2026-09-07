@@ -119,7 +119,7 @@ branch \code{r1},\code{r2}=operands, \code{imm}=signed PC-rel ($\pm$512\,KB).\ \
 \code{0x14} & \code{SLR}    & R & & & \\
 \code{0x15} & \code{SAR}    & R & & & \\
 \end{tabular}
-\vspace{0.15em}\\
+\par\vspace{0.15em}\noindent
 {\footnotesize Opcodes \code{0x22}--\code{0x3F} (34--63) reserved.}
 
 % ===========================================================================
@@ -130,10 +130,10 @@ branch \code{r1},\code{r2}=operands, \code{imm}=signed PC-rel ($\pm$512\,KB).\ \
 \code{r4--r7}  & temporaries (caller-saved) \\
 \code{r8--r12} & callee-saved (push on entry, pop before \code{RET}) \\
 \code{r13 SP}  & stack pointer --- full descending, 4-byte aligned \\
-\code{r14 LR}  & link register (saved by \code{CALL}) \\
+\code{r14 LR}  & link register --- return address (caller-saved) \\
 \code{r15 PC}  & program counter (not writable) \\
 \end{tabular}
-\vspace{0.3em}\\
+\par\vspace{0.3em}\noindent
 {\footnotesize\textbf{Control registers} --- \code{MFCR}/\code{MTCR}, index 0--3:
 \code{tvec}\,0, \code{epc}\,1, \code{cause}\,2, \code{mode}\,3.
 CPU boots in supervisor mode; \code{SP}${=}$\code{0x1FFC} at boot.}
@@ -151,7 +151,7 @@ CPU boots in supervisor mode; \code{SP}${=}$\code{0x1FFC} at boot.}
 \code{0xFFFF0014}     & disk buffer register \\
 \code{0xFFFF0018}     & disk command (0 = read sector) \\
 \end{tabular}
-\vspace{0.2em}\\
+\par\vspace{0.2em}\noindent
 {\footnotesize No memory protection --- user code may touch any address.}
 
 % ===========================================================================
@@ -164,6 +164,7 @@ CPU boots in supervisor mode; \code{SP}${=}$\code{0x1FFC} at boot.}
 % ===========================================================================
 \section{Syscalls}
 Number in \code{r0}, args in \code{r1--r3}, return in \code{r0}.
+
 \begin{tabular}{@{}C{0.55cm} L{1.3cm} L{4.6cm}@{}}
 1 & \code{write} & \code{r1}=buf ptr, \code{r2}=byte count \\
 2 & \code{read}  & returns byte in \code{r0} (blocks) \\
@@ -175,14 +176,16 @@ Number in \code{r0}, args in \code{r1--r3}, return in \code{r0}.
 \code{LI rd,imm}   & \code{LDI32L}~+~\code{LDI32H} \\
 \code{PUSH rs}     & \code{SP\,-=\,4};\; \code{STR32 rs,[SP]} \\
 \code{POP rd}      & \code{LDM32 rd,[SP]};\; \code{SP\,+=\,4} \\
-\code{CALL lbl}    & \code{PUSH r14};\; \code{BAL r14,lbl} \\
-\code{RET}         & \code{POP r14};\; \code{BALR r0,r14} \\
+\code{CALL lbl}    & \code{BAL r14,lbl} \quad(clobbers \code{r14}) \\
+\code{RET}         & \code{BALR r0,r14} \\
 \code{JMP lbl/rs}  & \code{BAL r0,lbl} / \code{BALR r0,rs} \\
 \code{ADDI rd,imm} & \code{LDI16 r0,imm};\; \code{ADD rd,rd,r0} \\
 \end{tabular}
-\vspace{0.2em}\\
-{\footnotesize All except \code{LI} clobber \code{r0}. Register convention:
-\code{r8--r12} callee-saved, everything else caller-saved.}
+\par\vspace{0.2em}\noindent
+{\footnotesize \code{LI} clobbers nothing, \code{CALL} clobbers \code{r14}, the
+rest clobber \code{r0}. \code{CALL}/\code{RET} do no stack traffic: a non-leaf
+function does \code{push lr} first and \code{pop lr} before \code{RET}
+(same for \code{r8--r12} if used); leaf functions need neither.}
 
 % ===========================================================================
 \section{BlissFS}

@@ -4,6 +4,8 @@ kernel_start:
   li r0, trap_handler               ; install trap handler
   mtcr tvec, r0
 
+  li sp, 0x1FFC                     ; initialise stack pointer
+
 load_superblock:
   li r0, 0xFFFF0010                 ; load superblock
   li r1, 0                          ; sector 0 (superblock)

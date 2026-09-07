@@ -39,8 +39,8 @@ fn build_symbol_table(items: &[Item]) -> Result<HashMap<String, u32>, CodegenErr
                     "li" => 8,
                     "push" => 12,
                     "pop" => 12,
-                    "call" => 16,
-                    "ret" => 16,
+                    "call" => 4,
+                    "ret" => 4,
                     "jmp" => 4,
                     _ => 4,
                 }
@@ -265,23 +265,15 @@ fn encode_call(
             expected: "label",
         }),
     }?;
-    Ok([
-        encode_push("push", &[Operand::Reg(Register::LR)]).expect("operand is a valid register"),
-        vec![enc_bal(
-            Register::LR as u32,
-            *target_address as i32 - (current_address + 12) as i32,
-        )],
-    ]
-    .concat())
+    Ok(vec![enc_bal(
+        Register::LR as u32,
+        *target_address as i32 - current_address as i32,
+    )])
 }
 
 fn encode_ret(mnemonic: &str, operands: &[Operand]) -> Result<Vec<u32>, CodegenError> {
     check_operand_count(mnemonic, operands, 0)?;
-    Ok([
-        encode_pop("pop", &[Operand::Reg(Register::LR)]).expect("operand is a valid register"),
-        vec![enc_rr(0x21, Register::R0 as u32, Register::LR as u32)],
-    ]
-    .concat())
+    Ok(vec![enc_rr(0x21, Register::R0 as u32, Register::LR as u32)])
 }
 
 fn encode_jmp(

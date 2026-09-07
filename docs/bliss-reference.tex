@@ -331,10 +331,11 @@ source GPR.
 Pseudo-instructions are expanded by the assembler into one or more real
 instructions.
 
-\begin{blissnote}[\code{r0} is volatile]
-Several pseudo-instructions use \reg{r0} as a temporary and clobber it. Do not
-hold a live value in \reg{r0} across a \code{PUSH}, \code{POP}, \code{CALL},
-\code{RET}, or \code{ADDI}.
+\begin{blissnote}[Clobbered registers]
+Most of these use \reg{r0} as a temporary and clobber it --- do not hold a live
+value in \reg{r0} across a \code{PUSH}, \code{POP}, \code{RET}, or \code{ADDI}.
+\code{CALL} instead overwrites \reg{r14} (the link register) with the return
+address.
 \end{blissnote}
 
 \begin{center}
@@ -345,8 +346,8 @@ hold a live value in \reg{r0} across a \code{PUSH}, \code{POP}, \code{CALL},
 \code{LI rd, imm}   & \code{LDI32L rd, imm[15:0]} $\cdot$ \code{LDI32H rd, imm[31:16]} & --- \\
 \code{PUSH rs}      & \code{LDI16 r0, 4} $\cdot$ \code{SUB r13, r13, r0} $\cdot$ \code{STR32 rs, [r13]} & \code{r0} \\
 \code{POP rd}       & \code{LDM32 rd, [r13]} $\cdot$ \code{LDI16 r0, 4} $\cdot$ \code{ADD r13, r13, r0} & \code{r0} \\
-\code{CALL label}   & \code{PUSH r14} $\cdot$ \code{BAL r14, label} & \code{r0} \\
-\code{RET}          & \code{POP r14} $\cdot$ \code{BALR r0, r14} & \code{r0} \\
+\code{CALL label}   & \code{BAL r14, label} & \code{r14} \\
+\code{RET}          & \code{BALR r0, r14} & \code{r0} \\
 \code{JMP label}    & \code{BAL r0, label} & \code{r0} \\
 \code{JMP rs}       & \code{BALR r0, rs} & \code{r0} \\
 \code{ADDI rd, imm} & \code{LDI16 r0, imm} $\cdot$ \code{ADD rd, rd, r0} \; (imm fits 16 bits) & \code{r0} \\
@@ -354,8 +355,10 @@ hold a live value in \reg{r0} across a \code{PUSH}, \code{POP}, \code{CALL},
 \end{tabular}
 \end{center}
 
-\noindent \code{LI} is implemented today; the stack and call family are Phase~1
-of the road to the interactive shell.
+\noindent \code{CALL} is a single \code{BAL r14, label}: it sets \reg{r14} to the
+return address and jumps. \code{RET} is a single \code{BALR r0, r14}: it jumps to
+whatever \reg{r14} holds. There is no implicit stack traffic --- saving \reg{r14}
+is the callee's job (see below).
 
 % ===========================================================================
 \section{Calling convention}
@@ -373,7 +376,7 @@ of the road to the interactive shell.
 \reg{r4}--\reg{r7} & Caller-saved temporaries & Caller \\
 \reg{r8}--\reg{r12} & Callee-saved & Callee \\
 \reg{r13}        & Stack pointer (\code{SP}) & Always preserved \\
-\reg{r14}        & Link register (\code{LR}) & Saved by \code{CALL} \\
+\reg{r14}        & Link register (\code{LR}) & Caller \\
 \reg{r15}        & Program counter (\code{PC}) & --- (not writable) \\
 \bottomrule
 \end{tabular}
@@ -394,20 +397,31 @@ returning.
 \end{itemize}
 
 \subsection{Call sequence}
+
+\textbf{Leaf functions} --- those that make no further calls --- need no prologue
+or epilogue. \reg{r14} is left untouched, so \code{RET} works directly:
+
 \begin{lstlisting}
-; Caller
-call my_func      ; saves r14, jumps to my_func, r14 <- return address
+bar:
+  ; ... body ...
+  ret               ; r14 still holds the caller's return address
+\end{lstlisting}
 
-; Callee prologue (if it uses callee-saved registers)
-push r8
-push r9
+\textbf{Non-leaf functions} must save \reg{r14} before their own \code{CALL}
+clobbers it, and restore it before returning. Callee-saved registers
+(\reg{r8}--\reg{r12}) follow the same push-on-entry / pop-before-return pattern:
 
-; ... function body ...
+\begin{lstlisting}
+foo:
+  push lr           ; save caller's return address (lr = r14)
+  push r8           ; save any callee-saved registers used
 
-; Callee epilogue
-pop r9
-pop r8
-ret               ; restores r14, jumps to it
+  ; ... body, including calls to other functions ...
+  call bar
+
+  pop r8            ; restore in reverse order
+  pop lr
+  ret               ; jump to the restored return address
 \end{lstlisting}
 
 % ===========================================================================

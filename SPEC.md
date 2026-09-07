@@ -106,7 +106,7 @@ branches (r1=rs1, r2=rs2, imm=signed PC-relative offset, ±512 KB reach)
 **U — one register + large immediate** `| 6: opcode | 4: rd | 22: imm |`
 LDI16/LDI32L/LDI32H (16-bit imm, upper bits unused), BAL (22-bit signed PC-relative offset, ±8 MB reach)
 
-**C — control register access** `| 6: opcode | 4: rd/cr | 4: cr/rs | 14: — |`
+**C — control register access** `| 6: opcode | 4: rd/cr | 4: cr/rs | 18: — |`
 MFCR (rd=destination GPR, cr=control register index 0–3),
 MTCR (cr=control register index 0–3, rs=source GPR)
 
@@ -158,20 +158,19 @@ Opcodes 34–63 are reserved.
 
 Pseudo-instructions are expanded by the assembler into one or more real instructions.
 Several pseudo-instructions use **r0 as a temporary** and will clobber it — do not hold
-a live value in r0 across a `PUSH`, `POP`, `CALL`, `RET`, or `ADDI`.
+a live value in r0 across a `PUSH`, `POP`, `RET`, or `ADDI`. `CALL` instead clobbers
+**r14**, overwriting it with the return address.
 
 | Pseudo-instruction  | Expands to                                                   | Clobbers |
 |---------------------|--------------------------------------------------------------|----------|
 | `LI rd, imm`        | `LDI32L rd, imm[15:0]` + `LDI32H rd, imm[31:16]`           | —        |
 | `PUSH rs`           | `LDI16 r0, 4` · `SUB r13, r13, r0` · `STR32 rs, [r13]`    | r0       |
 | `POP rd`            | `LDM32 rd, [r13]` · `LDI16 r0, 4` · `ADD r13, r13, r0`    | r0       |
-| `CALL label`        | `PUSH r14` · `BAL r14, label`                               | r0       |
-| `RET`               | `POP r14` · `BALR r0, r14`                                  | r0       |
+| `CALL label`        | `BAL r14, label`                                            | r14      |
+| `RET`               | `BALR r0, r14`                                              | r0       |
 | `JMP label`         | `BAL r0, label`                                             | r0       |
 | `JMP rs`            | `BALR r0, rs`                                               | r0       |
 | `ADDI rd, imm`      | `LDI16 r0, imm` · `ADD rd, rd, r0`  (imm must fit 16 bits) | r0       |
-
-> `LI rd, imm` is already implemented. The rest are planned for Phase 1.
 
 ## Calling Convention
 
@@ -184,7 +183,7 @@ a live value in r0 across a `PUSH`, `POP`, `CALL`, `RET`, or `ADDI`.
 | r4–r7    | Caller-saved temporaries      | Caller    |
 | r8–r12   | Callee-saved                  | Callee    |
 | r13      | Stack pointer (SP)            | Always preserved |
-| r14      | Link register (LR)            | Saved by `CALL` |
+| r14      | Link register (LR)            | Caller    |
 | r15      | Program counter (PC)          | — (not writable) |
 
 **Caller-saved** registers (r0–r7, r14) may be freely overwritten by any function. If the
@@ -201,20 +200,31 @@ any of them must push them on entry and pop them before returning.
 
 ### Call sequence (using pseudo-instructions)
 
+`CALL` is a single `BAL r14, label` — it sets r14 to the return address and jumps.
+`RET` is a single `BALR r0, r14` — it jumps to whatever is in r14.
+
+**Leaf functions** (those that make no further calls) need no prologue or epilogue:
+
 ```asm
-; Caller
-call my_func      ; saves r14, jumps to my_func, r14 ← return address
+bar:
+  ; ... body ...
+  ret             ; r14 still holds the return address set by the caller's CALL
+```
 
-; Callee prologue (if it uses callee-saved registers)
-push r8
-push r9
+**Non-leaf functions** must save r14 before it is clobbered by their own `CALL`, and
+restore it before returning. Callee-saved general registers (r8–r12) follow the same pattern:
 
-; ... function body ...
+```asm
+foo:
+  push lr         ; save caller's return address (lr = r14)
+  push r8         ; save callee-saved registers if used
 
-; Callee epilogue
-pop r9
-pop r8
-ret               ; restores r14, jumps to it
+  ; ... body, including calls to other functions ...
+  call bar
+
+  pop r8          ; restore in reverse order
+  pop lr
+  ret             ; jump to restored lr
 ```
 
 ## Syscall ABI
