@@ -1,0 +1,544 @@
+\documentclass[11pt]{article}
+\input{bliss-preamble}
+
+\title{\vspace{-2em}\color{blissaccent}\textbf{\Huge Bliss}\\[0.4em]
+  \color{blissink}\Large ISA \& System Reference}
+\author{}
+\date{Generated from \texttt{SPEC.md}}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{center}
+\begin{minipage}{0.82\linewidth}
+\small\itshape
+A minimal 32-bit register machine, an assembler for it, and a small
+terminal-only operating system --- each layer hand-rolled so that every byte is
+understood. This document is the reference for the virtual machine's
+architecture: registers, memory, instructions, the privilege mechanism, the
+calling convention, the syscall ABI, and the BlissFS on-disk format.
+\end{minipage}
+\end{center}
+
+\vspace{1em}
+\tableofcontents
+\vspace{1em}
+
+% ===========================================================================
+\section{Architecture at a glance}
+% ===========================================================================
+
+\begin{itemize}[leftmargin=1.4em]
+  \item 32-bit, register-based virtual machine.
+  \item 16 general-purpose 32-bit registers (\code{r0}--\code{r15}).
+  \item Fixed-width 32-bit instructions; the opcode is always bits \code{[31:26]}.
+  \item Load/store architecture: arithmetic operates on registers only; memory
+        is touched exclusively through explicit loads and stores.
+  \item Memory-mapped I/O --- there are no dedicated I/O instructions.
+  \item Flat 32-bit address space.
+  \item Comparison-in-branch: there is no flags register; branch instructions
+        take two source registers and compare them directly.
+\end{itemize}
+
+\begin{blissnote}[Design lineage]
+The ISA draws on RISC-V and early ARM: fixed-width instructions, a load/store
+core, a generous register file, branch instructions that fold in the comparison,
+and MMIO for every device.
+\end{blissnote}
+
+% ===========================================================================
+\section{Registers}
+% ===========================================================================
+
+\subsection{General-purpose file}
+
+All sixteen registers are 32 bits wide. Three carry an architected role:
+
+\begin{center}
+\begin{tabular}{@{}L{2.2cm} L{11cm}@{}}
+\toprule
+\textbf{Register} & \textbf{Role} \\
+\midrule
+\reg{r0}          & Assembler scratch / syscall number / return value. Reserved:
+                    never assume it survives a pseudo-instruction or a call. \\
+\reg{r1}--\reg{r12} & Ordinary general-purpose registers (see the calling
+                    convention for how they split into argument, caller-saved
+                    and callee-saved groups). \\
+\reg{r13}         & Stack pointer (\code{SP}). \\
+\reg{r14}         & Link register (\code{LR}). \\
+\reg{r15}         & Program counter (\code{PC}). Not directly writable. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Control registers}
+
+Four control registers sit alongside the general-purpose file and are accessed
+only with \code{MFCR} / \code{MTCR}.
+
+\begin{center}
+\begin{tabular}{@{}L{2.0cm} C{1.4cm} L{9.6cm}@{}}
+\toprule
+\textbf{Name} & \textbf{Index} & \textbf{Description} \\
+\midrule
+\reg{tvec}  & 0 & Trap vector: address of the supervisor trap handler. \\
+\reg{epc}   & 1 & Exception PC: return address saved on trap. \\
+\reg{cause} & 2 & Trap cause code (\code{0} = syscall, \dots). \\
+\reg{mode}  & 3 & Current privilege level (\code{0} = user, \code{1} = supervisor). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ===========================================================================
+\section{Privilege modes}
+% ===========================================================================
+
+Bliss has two privilege levels: \textbf{user} (0) and \textbf{supervisor} (1).
+The current level lives in the \reg{mode} control register. \emph{The CPU boots
+in supervisor mode.}
+
+\subsection{Trap flow --- \code{ECALL}}
+
+When \code{ECALL} executes:
+\begin{enumerate}[leftmargin=1.8em,itemsep=0.1em]
+  \item \code{epc $\leftarrow$ PC} --- the address of the instruction following \code{ECALL}.
+  \item \code{cause $\leftarrow$ 0} --- syscall.
+  \item \code{mode $\leftarrow$ supervisor}.
+  \item \code{PC $\leftarrow$ tvec}.
+\end{enumerate}
+
+\subsection{Return flow --- \code{ERET}}
+
+When \code{ERET} executes:
+\begin{enumerate}[leftmargin=1.8em,itemsep=0.1em]
+  \item \code{mode $\leftarrow$ user}.
+  \item \code{PC $\leftarrow$ epc}.
+\end{enumerate}
+
+\begin{blissnote}[No automatic save/restore]
+Neither \code{ECALL} nor \code{ERET} saves or restores any general-purpose
+register. Preserving state across a trap is entirely the trap handler's
+responsibility.
+\end{blissnote}
+
+% ===========================================================================
+\section{Memory map}
+% ===========================================================================
+
+\begin{center}
+\begin{tabular}{@{}L{4.4cm} L{9.0cm}@{}}
+\toprule
+\textbf{Address range} & \textbf{Use} \\
+\midrule
+\code{0x0000\_0000}--\code{0x0000\_0FFF} & Kernel code and data \\
+\code{0x0000\_1000}--\code{0x0000\_11FF} & Kernel scratch buffer (disk I/O, one sector) \\
+\code{0x0000\_1200}--\code{0x0000\_1FFB} & Kernel stack (grows downward; \code{SP} starts at \code{0x1FFC}) \\
+\code{0x0000\_2000}-- & User program \\
+\addlinespace[0.3em]
+\code{0xFFFF\_0000} & Serial TX --- write byte $\rightarrow$ stdout \\
+\code{0xFFFF\_0004} & Serial RX --- read byte $\leftarrow$ stdin (blocks until ready) \\
+\code{0xFFFF\_0010} & Disk sector register \\
+\code{0xFFFF\_0014} & Disk buffer register \\
+\code{0xFFFF\_0018} & Disk command (\code{0} = read sector) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{blissnote}[Warning]
+Memory protection is not implemented. User code may read or write any address,
+including MMIO registers and kernel memory. This is a deliberate simplification
+for now.
+\end{blissnote}
+
+% ===========================================================================
+\section{Instruction set}
+% ===========================================================================
+
+\subsection{Data movement}
+\begin{center}
+\begin{tabular}{@{}L{3.0cm} L{10.4cm}@{}}
+\toprule
+\code{MOV}            & Register to register. \\
+\code{LDI16}          & Load 16-bit immediate (zero-extended). \\
+\code{LDI32L}         & Load immediate into the lower 16 bits of a register. \\
+\code{LDI32H}         & Load immediate into the upper 16 bits of a register. \\
+\code{LDM8/16/32}     & Load from memory into a register (8/16 zero-extended). \\
+\code{STR8/16/32}     & Store a register to memory. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Arithmetic and logic}
+\begin{center}
+\begin{tabular}{@{}L{3.0cm} L{10.4cm}@{}}
+\toprule
+\code{ADD}, \code{SUB}, \code{MUL} & Integer arithmetic. \\
+\code{AND}, \code{OR}, \code{XOR}, \code{NOT} & Bitwise logic. \\
+\code{SLL}, \code{SLR}            & Logical left / right shift. \\
+\code{SAR}                        & Arithmetic right shift. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Control flow}
+\begin{center}
+\begin{tabular}{@{}L{3.0cm} L{10.4cm}@{}}
+\toprule
+\code{BEQ}, \code{BNE}   & Branch if equal / not equal. \\
+\code{BLT}, \code{BGE}   & Branch if less-than / greater-or-equal (signed). \\
+\code{BLTU}, \code{BGEU} & Branch if less-than / greater-or-equal (unsigned). \\
+\code{BAL}               & Branch and link: PC-relative jump, save return address to a register. \\
+\code{BALR}              & Branch and link to register: jump to an address held in a register, save return address. \\
+\code{HLT}               & Halt. \\
+\code{NOP}               & No operation. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Privilege}
+\begin{center}
+\begin{tabular}{@{}L{3.0cm} L{10.4cm}@{}}
+\toprule
+\code{ECALL}            & Trap from user mode to supervisor. \\
+\code{ERET}             & Return from the trap handler to user mode. \\
+\code{MFCR rd, <cr>}    & Move from a control register into a general-purpose register. \\
+\code{MTCR <cr>, rs}    & Move to a control register from a general-purpose register. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ===========================================================================
+\section{Instruction formats}
+% ===========================================================================
+
+Every instruction is 32 bits wide. The opcode occupies bits \code{[31:26]} in
+all formats.
+
+\subsection*{R --- register operations}
+\begin{center}
+\begin{bytefield}{32}
+  \bitheader{0,13,17,21,25,31} \\
+  \bitbox{6}{opcode} \bitbox{4}{rd} \bitbox{4}{rs1} \bitbox{4}{rs2} \bitbox{14}{unused}
+\end{bytefield}
+\end{center}
+\noindent Used by: \code{ADD}, \code{SUB}, \code{MUL}, \code{AND}, \code{OR},
+\code{XOR}, \code{SLL}, \code{SLR}, \code{SAR}, \code{MOV}, \code{NOT},
+\code{BALR}. For \code{BALR}, \code{rd} is the link destination, \code{rs1} is
+the branch target, and \code{rs2} is unused.
+
+\subsection*{I --- two registers + immediate}
+\begin{center}
+\begin{bytefield}{32}
+  \bitheader{0,17,21,25,31} \\
+  \bitbox{6}{opcode} \bitbox{4}{r1} \bitbox{4}{r2} \bitbox{18}{imm}
+\end{bytefield}
+\end{center}
+\noindent Loads: \code{r1} = destination, \code{r2} = base, \code{imm} = offset.
+Stores: \code{r1} = source, \code{r2} = base, \code{imm} = offset.
+Branches: \code{r1}, \code{r2} = the two operands to compare, \code{imm} = signed
+PC-relative offset ($\pm$512\,KB reach).
+
+\subsection*{U --- one register + large immediate}
+\begin{center}
+\begin{bytefield}{32}
+  \bitheader{0,21,25,31} \\
+  \bitbox{6}{opcode} \bitbox{4}{rd} \bitbox{22}{imm}
+\end{bytefield}
+\end{center}
+\noindent \code{LDI16} / \code{LDI32L} / \code{LDI32H} use a 16-bit immediate
+(upper bits unused). \code{BAL} uses the full 22-bit signed PC-relative offset
+($\pm$8\,MB reach).
+
+\subsection*{C --- control register access}
+\begin{center}
+\begin{bytefield}{32}
+  \bitheader{0,17,21,25,31} \\
+  \bitbox{6}{opcode} \bitbox{4}{rd/cr} \bitbox{4}{cr/rs} \bitbox{18}{unused}
+\end{bytefield}
+\end{center}
+\noindent \code{MFCR}: \code{rd} = destination GPR, \code{cr} = control register
+index 0--3. \code{MTCR}: \code{cr} = control register index 0--3, \code{rs} =
+source GPR.
+
+\subsection*{N --- no operands}
+\begin{center}
+\begin{bytefield}{32}
+  \bitheader{0,25,31} \\
+  \bitbox{6}{opcode} \bitbox{26}{unused}
+\end{bytefield}
+\end{center}
+\noindent Used by \code{HLT}, \code{NOP}, \code{ECALL}, \code{ERET}.
+
+% ===========================================================================
+\section{Opcode table}
+% ===========================================================================
+
+\begin{center}
+\begin{longtable}{@{}C{1.3cm} C{1.3cm} L{3.2cm} C{2.0cm}@{}}
+\toprule
+\textbf{Dec} & \textbf{Hex} & \textbf{Mnemonic} & \textbf{Format} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Dec} & \textbf{Hex} & \textbf{Mnemonic} & \textbf{Format} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+0  & 0x00 & \code{HLT}    & N \\
+1  & 0x01 & \code{NOP}    & N \\
+2  & 0x02 & \code{MOV}    & R \\
+3  & 0x03 & \code{LDI16}  & U \\
+4  & 0x04 & \code{LDI32L} & U \\
+5  & 0x05 & \code{LDI32H} & U \\
+6  & 0x06 & \code{LDM8}   & I \\
+7  & 0x07 & \code{LDM16}  & I \\
+8  & 0x08 & \code{LDM32}  & I \\
+9  & 0x09 & \code{STR8}   & I \\
+10 & 0x0A & \code{STR16}  & I \\
+11 & 0x0B & \code{STR32}  & I \\
+12 & 0x0C & \code{ADD}    & R \\
+13 & 0x0D & \code{SUB}    & R \\
+14 & 0x0E & \code{MUL}    & R \\
+15 & 0x0F & \code{AND}    & R \\
+16 & 0x10 & \code{OR}     & R \\
+17 & 0x11 & \code{XOR}    & R \\
+18 & 0x12 & \code{NOT}    & R \\
+19 & 0x13 & \code{SLL}    & R \\
+20 & 0x14 & \code{SLR}    & R \\
+21 & 0x15 & \code{SAR}    & R \\
+22 & 0x16 & \code{BEQ}    & I \\
+23 & 0x17 & \code{BNE}    & I \\
+24 & 0x18 & \code{BLT}    & I \\
+25 & 0x19 & \code{BGE}    & I \\
+26 & 0x1A & \code{BLTU}   & I \\
+27 & 0x1B & \code{BGEU}   & I \\
+28 & 0x1C & \code{BAL}    & U \\
+29 & 0x1D & \code{ECALL}  & N \\
+30 & 0x1E & \code{ERET}   & N \\
+31 & 0x1F & \code{MFCR}   & C \\
+32 & 0x20 & \code{MTCR}   & C \\
+33 & 0x21 & \code{BALR}   & R \\
+\end{longtable}
+\end{center}
+\noindent Opcodes 34--63 are reserved.
+
+% ===========================================================================
+\section{Pseudo-instructions}
+% ===========================================================================
+
+Pseudo-instructions are expanded by the assembler into one or more real
+instructions.
+
+\begin{blissnote}[\code{r0} is volatile]
+Several pseudo-instructions use \reg{r0} as a temporary and clobber it. Do not
+hold a live value in \reg{r0} across a \code{PUSH}, \code{POP}, \code{CALL},
+\code{RET}, or \code{ADDI}.
+\end{blissnote}
+
+\begin{center}
+\begin{tabular}{@{}L{2.6cm} L{9.2cm} C{1.3cm}@{}}
+\toprule
+\textbf{Pseudo} & \textbf{Expands to} & \textbf{Clob.} \\
+\midrule
+\code{LI rd, imm}   & \code{LDI32L rd, imm[15:0]} $\cdot$ \code{LDI32H rd, imm[31:16]} & --- \\
+\code{PUSH rs}      & \code{LDI16 r0, 4} $\cdot$ \code{SUB r13, r13, r0} $\cdot$ \code{STR32 rs, [r13]} & \code{r0} \\
+\code{POP rd}       & \code{LDM32 rd, [r13]} $\cdot$ \code{LDI16 r0, 4} $\cdot$ \code{ADD r13, r13, r0} & \code{r0} \\
+\code{CALL label}   & \code{PUSH r14} $\cdot$ \code{BAL r14, label} & \code{r0} \\
+\code{RET}          & \code{POP r14} $\cdot$ \code{BALR r0, r14} & \code{r0} \\
+\code{JMP label}    & \code{BAL r0, label} & \code{r0} \\
+\code{JMP rs}       & \code{BALR r0, rs} & \code{r0} \\
+\code{ADDI rd, imm} & \code{LDI16 r0, imm} $\cdot$ \code{ADD rd, rd, r0} \; (imm fits 16 bits) & \code{r0} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent \code{LI} is implemented today; the stack and call family are Phase~1
+of the road to the interactive shell.
+
+% ===========================================================================
+\section{Calling convention}
+% ===========================================================================
+
+\subsection{Register roles}
+
+\begin{center}
+\begin{tabular}{@{}L{2.4cm} L{6.8cm} L{3.4cm}@{}}
+\toprule
+\textbf{Register} & \textbf{Role} & \textbf{Saved by} \\
+\midrule
+\reg{r0}         & Assembler scratch / return value & --- (never saved) \\
+\reg{r1}--\reg{r3} & Argument registers & Caller \\
+\reg{r4}--\reg{r7} & Caller-saved temporaries & Caller \\
+\reg{r8}--\reg{r12} & Callee-saved & Callee \\
+\reg{r13}        & Stack pointer (\code{SP}) & Always preserved \\
+\reg{r14}        & Link register (\code{LR}) & Saved by \code{CALL} \\
+\reg{r15}        & Program counter (\code{PC}) & --- (not writable) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Caller-saved} registers (\reg{r0}--\reg{r7}, \reg{r14}) may be
+overwritten freely by any function; a caller that needs them after a call must
+spill them first. \textbf{Callee-saved} registers (\reg{r8}--\reg{r12}) must be
+preserved: a function that touches one pushes it on entry and pops it before
+returning.
+
+\subsection{Stack}
+\begin{itemize}[leftmargin=1.4em]
+  \item Full descending: \code{SP} points to the last pushed value and grows
+        toward lower addresses.
+  \item \code{SP} is initialised to \code{0x1FFC} at kernel boot.
+  \item All pushes and pops are 4-byte aligned.
+\end{itemize}
+
+\subsection{Call sequence}
+\begin{lstlisting}
+; Caller
+call my_func      ; saves r14, jumps to my_func, r14 <- return address
+
+; Callee prologue (if it uses callee-saved registers)
+push r8
+push r9
+
+; ... function body ...
+
+; Callee epilogue
+pop r9
+pop r8
+ret               ; restores r14, jumps to it
+\end{lstlisting}
+
+% ===========================================================================
+\section{Syscall ABI}
+% ===========================================================================
+
+User programs trap into the kernel with \code{ECALL}.
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \reg{r0} --- syscall number on entry to the handler.
+  \item \reg{r1}, \reg{r2}, \reg{r3} --- arguments.
+  \item \reg{r0} --- return value, set by the handler before \code{ERET}.
+\end{itemize}
+
+\subsection{Cause codes}
+\begin{center}
+\begin{tabular}{@{}C{1.6cm} L{9.0cm}@{}}
+\toprule
+\textbf{\code{cause}} & \textbf{Meaning} \\
+\midrule
+0 & \code{ECALL} --- syscall from user mode. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Syscall table}
+\begin{center}
+\begin{tabular}{@{}C{0.9cm} L{2.2cm} L{2.6cm} L{2.6cm} L{4.0cm}@{}}
+\toprule
+\textbf{r0} & \textbf{Name} & \textbf{r1} & \textbf{r2} & \textbf{Returns} \\
+\midrule
+1 & \code{write} & buf ptr & byte count & --- \\
+2 & \code{read}  & ---     & ---        & \code{r0} = byte read (blocks until available) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ===========================================================================
+\section{BlissFS --- the filesystem}
+% ===========================================================================
+
+A minimal custom filesystem for the Bliss storage device.
+
+\subsection{Parameters}
+\begin{center}
+\begin{tabular}{@{}L{4.2cm} L{6.6cm}@{}}
+\toprule
+\textbf{Property} & \textbf{Value} \\
+\midrule
+Block size     & 512 bytes (one sector) \\
+Magic number   & \code{0xB2155F2D} \\
+Max inodes     & 32 \\
+Max filename   & 24 bytes (null-padded) \\
+Max file size  & $8 \times 512 = 4096$ bytes \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Disk layout}
+\begin{center}
+\begin{tabular}{@{}L{3.4cm} L{8.0cm}@{}}
+\toprule
+\textbf{Block} & \textbf{Contents} \\
+\midrule
+0      & Superblock \\
+1--4   & Inode table ($32$ inodes $\times$ 64 bytes = 2048 bytes) \\
+5      & Free-block bitmap \\
+6+     & Data blocks \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Superblock (block 0, first 20 bytes)}
+\begin{center}
+\begin{tabular}{@{}C{1.4cm} C{1.2cm} L{7.4cm}@{}}
+\toprule
+\textbf{Offset} & \textbf{Size} & \textbf{Field} \\
+\midrule
+0  & 4 & Magic (\code{0xB2155F2D}) \\
+4  & 4 & Block size (512) \\
+8  & 4 & Inode count (32) \\
+12 & 4 & Data start block (6) \\
+16 & 4 & Free block count \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Inode (64 bytes)}
+\begin{center}
+\begin{tabular}{@{}C{1.4cm} C{1.2cm} L{8.4cm}@{}}
+\toprule
+\textbf{Offset} & \textbf{Size} & \textbf{Field} \\
+\midrule
+0  & 4  & File size in bytes \\
+4  & 1  & Type: 0 = unused, 1 = file, 2 = directory \\
+5  & 3  & Reserved \\
+8  & 32 & $8 \times$ 4-byte direct block pointers (0 = unused) \\
+40 & 24 & Reserved \\
+\bottomrule
+\end{tabular}
+\end{center}
+\noindent Inode 0 is reserved (null). Inode 1 is the root directory.
+
+\subsection{Directory entry (28 bytes)}
+\begin{center}
+\begin{tabular}{@{}C{1.4cm} C{1.2cm} L{8.4cm}@{}}
+\toprule
+\textbf{Offset} & \textbf{Size} & \textbf{Field} \\
+\midrule
+0  & 24 & Filename, null-padded \\
+24 & 4  & Inode number (0 = empty slot) \\
+\bottomrule
+\end{tabular}
+\end{center}
+\noindent 18 directory entries fit per block ($18 \times 28 = 504$ bytes; 8
+bytes unused).
+
+% ===========================================================================
+\section{Worked examples}
+% ===========================================================================
+
+\subsection{Hello, world (bare metal, no OS)}
+
+Writes a string to the serial TX port one byte at a time.
+
+\lstinputlisting{../examples/hello.asm}
+
+\subsection{A user-mode program}
+
+Loaded by the kernel at \code{0x2000}, prints via the \code{write} syscall.
+
+\lstinputlisting{../os/user.asm}
+
+\end{document}

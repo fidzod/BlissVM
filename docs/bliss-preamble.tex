@@ -1,0 +1,122 @@
+% Shared preamble for Bliss documentation.
+% Input from a document after \documentclass, before \begin{document}.
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{colortbl}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{bytefield}
+\usepackage{listings}
+\usepackage[most]{tcolorbox}
+\usepackage[hidelinks]{hyperref}
+
+% ---------------------------------------------------------------------------
+% Palette
+% ---------------------------------------------------------------------------
+\definecolor{blissink}{HTML}{1C2333}   % near-black text
+\definecolor{blissaccent}{HTML}{3B4CCA} % indigo
+\definecolor{blissaccent2}{HTML}{0E7C7B}% teal
+\definecolor{blissrule}{HTML}{C7CBD6}
+\definecolor{blisssoft}{HTML}{F1F2F6}
+\definecolor{blisscode}{HTML}{F6F8FA}
+\definecolor{blisskw}{HTML}{9B1D64}
+\definecolor{blisscmt}{HTML}{6A737D}
+
+\color{blissink}
+
+% ---------------------------------------------------------------------------
+% Headings
+% ---------------------------------------------------------------------------
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{blissaccent}}
+  {\thesection}{0.6em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{blissink}}
+  {\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{2.2ex plus 1ex minus .2ex}{1.2ex plus .2ex}
+
+% ---------------------------------------------------------------------------
+% Headers / footers
+% ---------------------------------------------------------------------------
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+\fancyhead[L]{\small\color{blisscmt}\textsc{Bliss}}
+\fancyhead[R]{\small\color{blisscmt}\leftmark}
+\fancyfoot[C]{\small\color{blisscmt}\thepage}
+
+% ---------------------------------------------------------------------------
+% Tables
+% ---------------------------------------------------------------------------
+\renewcommand{\arraystretch}{1.25}
+\arrayrulecolor{blissrule}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+% ---------------------------------------------------------------------------
+% Monospace helper
+% ---------------------------------------------------------------------------
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\reg}[1]{\texttt{\textbf{#1}}}
+
+% ---------------------------------------------------------------------------
+% Listings — Bliss assembly
+% ---------------------------------------------------------------------------
+\lstdefinelanguage{blissasm}{
+  morekeywords={hlt,nop,mov,ldi16,ldi32l,ldi32h,ldm8,ldm16,ldm32,str8,str16,str32,
+    add,sub,mul,and,or,xor,not,sll,slr,sar,beq,bne,blt,bge,bltu,bgeu,bal,balr,
+    ecall,eret,mfcr,mtcr,li,push,pop,call,ret,jmp,addi,cmp},
+  morecomment=[l];,
+  morestring=[b]",
+  sensitive=false,
+}
+\lstdefinestyle{bliss}{
+  language=blissasm,
+  backgroundcolor=\color{blisscode},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blisskw}\bfseries,
+  commentstyle=\color{blisscmt}\itshape,
+  stringstyle=\color{blissaccent2},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{blissrule},
+  framesep=6pt,
+  xleftmargin=6pt,
+  xrightmargin=6pt,
+  showstringspaces=false,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+}
+\lstset{style=bliss}
+
+% ---------------------------------------------------------------------------
+% Callout box
+% ---------------------------------------------------------------------------
+\newtcolorbox{blissnote}[1][Note]{
+  enhanced, breakable,
+  colback=blisssoft, colframe=blissaccent,
+  boxrule=0pt, leftrule=3pt,
+  arc=1pt, left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\bfseries\color{blissaccent},
+  title={#1},
+}
+
+% ---------------------------------------------------------------------------
+% bytefield defaults
+% ---------------------------------------------------------------------------
+\bytefieldsetup{
+  bitwidth=1.15em,
+  endianness=big,
+  boxformatting={\centering\small},
+  bitformatting=\scriptsize\color{blisscmt},
+}

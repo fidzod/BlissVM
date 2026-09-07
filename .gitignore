@@ -1,3 +1,9 @@
 /target
 *.bin
 *.img
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.synctex.gz

@@ -1,0 +1,210 @@
+\documentclass[9pt]{extarticle}
+\usepackage[a4paper,portrait,margin=0.5in]{geometry}
+\linespread{1.04}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multicol}
+\usepackage{array}
+\usepackage{colortbl}
+\usepackage{titlesec}
+\usepackage{bytefield}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{blissink}{HTML}{1C2333}
+\definecolor{blissaccent}{HTML}{3B4CCA}
+\definecolor{blissrule}{HTML}{C7CBD6}
+\definecolor{blisscmt}{HTML}{6A737D}
+\color{blissink}
+\arrayrulecolor{blissrule}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\parindent}{0pt}
+\pagestyle{empty}
+
+\titleformat{\section}{\normalfont\normalsize\bfseries\color{blissaccent}}{}{0em}{}
+\titlespacing*{\section}{0pt}{1.4ex}{0.6ex}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+% --- instruction-format block diagram ---
+\bytefieldsetup{bitwidth=0.255cm, endianness=big,
+  boxformatting={\centering\scriptsize},
+  bitformatting={\scriptsize\color{blisscmt}}}
+\newcommand{\fmt}[2]{\par\smallskip
+  {\bfseries\color{blissaccent}#1}~~{\scriptsize\color{blisscmt}#2}\par\nobreak\vspace{0.8ex}}
+
+\begin{document}
+
+{\color{blissaccent}\bfseries\LARGE Bliss}\hfill{\color{blisscmt}\small ISA quick reference --- generated from \texttt{SPEC.md}}
+
+\vspace{0.3em}
+\hrule height 1pt
+
+\setlength{\columnsep}{1.6em}
+\setlength{\columnseprule}{0.4pt}
+\renewcommand{\columnseprulecolor}{\color{blissrule}}
+\begin{multicols}{2}
+
+% ===========================================================================
+\section{Instruction formats}
+32-bit fixed width. Opcode is always bits \code{[31:26]}. Numbers mark field
+boundaries (MSB left).
+
+\fmt{R}{register ops}
+\begin{bytefield}{32}
+  \bitheader{0,13,17,21,25,31} \\
+  \bitbox{6}{opcode} \bitbox{4}{rd} \bitbox{4}{rs1} \bitbox{4}{rs2} \bitbox{14}{unused}
+\end{bytefield}
+
+\fmt{I}{two regs + immediate}
+\begin{bytefield}{32}
+  \bitheader{0,17,21,25,31} \\
+  \bitbox{6}{opcode} \bitbox{4}{r1} \bitbox{4}{r2} \bitbox{18}{imm}
+\end{bytefield}
+
+\fmt{U}{one reg + large immediate}
+\begin{bytefield}{32}
+  \bitheader{0,21,25,31} \\
+  \bitbox{6}{opcode} \bitbox{4}{rd} \bitbox{22}{imm}
+\end{bytefield}
+
+\fmt{C}{control-register access}
+\begin{bytefield}{32}
+  \bitheader{0,17,21,25,31} \\
+  \bitbox{6}{opcode} \bitbox{4}{rd/cr} \bitbox{4}{cr/rs} \bitbox{18}{unused}
+\end{bytefield}
+
+\fmt{N}{no operands}
+\begin{bytefield}{32}
+  \bitheader{0,25,31} \\
+  \bitbox{6}{opcode} \bitbox{26}{unused}
+\end{bytefield}
+
+\smallskip
+{\footnotesize
+\textbf{R}: \code{rd$\leftarrow$rs1 op rs2}; \code{MOV}/\code{NOT} ignore
+\code{rs2}; \code{BALR} uses \code{rd}=link, \code{rs1}=target.\ \
+\textbf{I}: load/store \code{r1}=reg, \code{r2}=base, \code{imm}=offset;
+branch \code{r1},\code{r2}=operands, \code{imm}=signed PC-rel ($\pm$512\,KB).\ \
+\textbf{U}: \code{BAL} \code{imm}=signed PC-rel ($\pm$8\,MB).\ \
+\textbf{C}: \code{cr}=index 0--3.}
+
+% ===========================================================================
+\section{Opcodes}
+\begin{tabular}{@{}C{0.85cm} L{1.45cm} C{0.45cm}@{\hspace{1.2em}} C{0.85cm} L{1.5cm} C{0.45cm}@{}}
+\multicolumn{3}{@{}l}{\itshape\color{blisscmt}\footnotesize data \& arithmetic} &
+\multicolumn{3}{@{}l}{\itshape\color{blisscmt}\footnotesize control \& privilege} \\
+\code{0x02} & \code{MOV}    & R & \code{0x00} & \code{HLT}   & N \\
+\code{0x03} & \code{LDI16}  & U & \code{0x01} & \code{NOP}   & N \\
+\code{0x04} & \code{LDI32L} & U & \code{0x16} & \code{BEQ}   & I \\
+\code{0x05} & \code{LDI32H} & U & \code{0x17} & \code{BNE}   & I \\
+\code{0x06} & \code{LDM8}   & I & \code{0x18} & \code{BLT}   & I \\
+\code{0x07} & \code{LDM16}  & I & \code{0x19} & \code{BGE}   & I \\
+\code{0x08} & \code{LDM32}  & I & \code{0x1A} & \code{BLTU}  & I \\
+\code{0x09} & \code{STR8}   & I & \code{0x1B} & \code{BGEU}  & I \\
+\code{0x0A} & \code{STR16}  & I & \code{0x1C} & \code{BAL}   & U \\
+\code{0x0B} & \code{STR32}  & I & \code{0x21} & \code{BALR}  & R \\
+\code{0x0C} & \code{ADD}    & R & \code{0x1D} & \code{ECALL} & N \\
+\code{0x0D} & \code{SUB}    & R & \code{0x1E} & \code{ERET}  & N \\
+\code{0x0E} & \code{MUL}    & R & \code{0x1F} & \code{MFCR}  & C \\
+\code{0x0F} & \code{AND}    & R & \code{0x20} & \code{MTCR}  & C \\
+\code{0x10} & \code{OR}     & R & & & \\
+\code{0x11} & \code{XOR}    & R & & & \\
+\code{0x12} & \code{NOT}    & R & & & \\
+\code{0x13} & \code{SLL}    & R & & & \\
+\code{0x14} & \code{SLR}    & R & & & \\
+\code{0x15} & \code{SAR}    & R & & & \\
+\end{tabular}
+\vspace{0.15em}\\
+{\footnotesize Opcodes \code{0x22}--\code{0x3F} (34--63) reserved.}
+
+% ===========================================================================
+\section{Registers}
+\begin{tabular}{@{}L{1.5cm} L{5.2cm}@{}}
+\code{r0}      & scratch / syscall \# / return value (volatile) \\
+\code{r1--r3}  & arguments (caller-saved) \\
+\code{r4--r7}  & temporaries (caller-saved) \\
+\code{r8--r12} & callee-saved (push on entry, pop before \code{RET}) \\
+\code{r13 SP}  & stack pointer --- full descending, 4-byte aligned \\
+\code{r14 LR}  & link register (saved by \code{CALL}) \\
+\code{r15 PC}  & program counter (not writable) \\
+\end{tabular}
+\vspace{0.3em}\\
+{\footnotesize\textbf{Control registers} --- \code{MFCR}/\code{MTCR}, index 0--3:
+\code{tvec}\,0, \code{epc}\,1, \code{cause}\,2, \code{mode}\,3.
+CPU boots in supervisor mode; \code{SP}${=}$\code{0x1FFC} at boot.}
+
+% ===========================================================================
+\section{Memory map}
+\begin{tabular}{@{}L{3.0cm} L{3.6cm}@{}}
+\code{0x0000--0x0FFF} & kernel code + data \\
+\code{0x1000--0x11FF} & kernel disk scratch \\
+\code{0x1200--0x1FFB} & kernel stack \\
+\code{0x2000--}       & user program \\
+\code{0xFFFF0000}     & serial TX --- write byte \\
+\code{0xFFFF0004}     & serial RX --- read byte (blocks) \\
+\code{0xFFFF0010}     & disk sector register \\
+\code{0xFFFF0014}     & disk buffer register \\
+\code{0xFFFF0018}     & disk command (0 = read sector) \\
+\end{tabular}
+\vspace{0.2em}\\
+{\footnotesize No memory protection --- user code may touch any address.}
+
+% ===========================================================================
+\section{Traps}
+\code{ECALL}: \code{epc$\leftarrow$PC}, \code{cause$\leftarrow$0},
+\code{mode$\leftarrow$sup}, \code{PC$\leftarrow$tvec}. \\
+\code{ERET}: \code{mode$\leftarrow$user}, \code{PC$\leftarrow$epc}. \\
+{\footnotesize No registers saved automatically --- the handler does it.}
+
+% ===========================================================================
+\section{Syscalls}
+Number in \code{r0}, args in \code{r1--r3}, return in \code{r0}.
+\begin{tabular}{@{}C{0.55cm} L{1.3cm} L{4.6cm}@{}}
+1 & \code{write} & \code{r1}=buf ptr, \code{r2}=byte count \\
+2 & \code{read}  & returns byte in \code{r0} (blocks) \\
+\end{tabular}
+
+% ===========================================================================
+\section{Pseudo-instructions}
+\begin{tabular}{@{}L{1.9cm} L{4.7cm}@{}}
+\code{LI rd,imm}   & \code{LDI32L}~+~\code{LDI32H} \\
+\code{PUSH rs}     & \code{SP\,-=\,4};\; \code{STR32 rs,[SP]} \\
+\code{POP rd}      & \code{LDM32 rd,[SP]};\; \code{SP\,+=\,4} \\
+\code{CALL lbl}    & \code{PUSH r14};\; \code{BAL r14,lbl} \\
+\code{RET}         & \code{POP r14};\; \code{BALR r0,r14} \\
+\code{JMP lbl/rs}  & \code{BAL r0,lbl} / \code{BALR r0,rs} \\
+\code{ADDI rd,imm} & \code{LDI16 r0,imm};\; \code{ADD rd,rd,r0} \\
+\end{tabular}
+\vspace{0.2em}\\
+{\footnotesize All except \code{LI} clobber \code{r0}. Register convention:
+\code{r8--r12} callee-saved, everything else caller-saved.}
+
+% ===========================================================================
+\section{BlissFS}
+Block = 512\,B (one sector). Magic \code{0xB2155F2D}. 32 inodes, filename
+$\le$24\,B, file $\le$4096\,B ($8\times512$).
+
+\vspace{0.25em}
+\textbf{Disk layout:} blk 0 superblock $\cdot$ blk 1--4 inode table
+($32\times64$\,B) $\cdot$ blk 5 free-block bitmap $\cdot$ blk 6+ data.
+
+\vspace{0.2em}
+\textbf{Superblock} (20\,B): magic $\cdot$ block size $\cdot$ inode count
+$\cdot$ data-start block (6) $\cdot$ free-block count --- 4\,B each.
+
+\vspace{0.2em}
+\textbf{Inode} (64\,B): size(4) $\cdot$ type(1: 0 unused / 1 file / 2 dir)
+$\cdot$ resv(3) $\cdot$ 8 direct block pointers (32) $\cdot$ resv(24).
+Inode 0 null, inode 1 = root dir.
+
+\vspace{0.2em}
+\textbf{Dir entry} (28\,B): filename(24, null-padded) $\cdot$ inode number(4,
+0 = empty). 18 per block.
+
+\end{multicols}
+\end{document}
