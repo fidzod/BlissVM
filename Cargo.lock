@@ -12,10 +12,28 @@ dependencies = [
 [[package]]
 name = "bliss"
 version = "0.1.0"
+dependencies = [
+ "termios",
+]
 
 [[package]]
 name = "blissfs"
 version = "0.1.0"
 dependencies = [
  "bliss",
+]
+
+[[package]]
+name = "libc"
+version = "0.2.189"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+
+[[package]]
+name = "termios"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "411c5bf740737c7918b8b1fe232dca4dc9f8e754b8ad5e20966814001ed0ac6b"
+dependencies = [
+ "libc",
 ]

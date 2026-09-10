@@ -6,6 +6,31 @@ use bliss::{
     vm::{StepResult, Vm},
 };
 
+use termios::{tcsetattr, Termios, ECHO, ICANON, TCSANOW, VMIN, VTIME};
+
+struct RawMode {
+    saved: Termios,
+}
+
+impl RawMode {
+    fn enter() -> Option<Self> {
+        Termios::from_fd(0).ok().map(|mut termios| {
+            let saved = termios.clone();
+            termios.c_lflag &= !(ICANON | ECHO);
+            termios.c_cc[VMIN] = 1;
+            termios.c_cc[VTIME] = 0;
+            tcsetattr(0, TCSANOW, &termios).expect("Could not set raw mode");
+            RawMode { saved }
+        })
+    }
+}
+
+impl Drop for RawMode {
+    fn drop(&mut self) {
+        tcsetattr(0, TCSANOW, &self.saved).ok();
+    }
+}
+
 fn run(vm: &mut Vm) -> Result<(), VmError> {
     loop {
         let word = vm.fetch()?;
@@ -43,8 +68,11 @@ fn main() {
         vm.load_disk(disk_data);
     }
 
-    run(&mut vm).unwrap_or_else(|e| {
+    let _raw = RawMode::enter();
+
+    if let Err(e) = run(&mut vm) {
+        drop(_raw);
         eprintln!("Error during program execution: {:?}", e);
-        std::process::exit(1)
-    });
+        std::process::exit(1);
+    }
 }
