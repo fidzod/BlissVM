@@ -183,7 +183,7 @@ fn encode_ri_instr(
     check_operand_count(mnemonic, operands, 2)?;
     let dst = expect_reg(operands, 0, mnemonic)?;
     let imm = expect_imm(operands, 1, mnemonic)?;
-    if !(0..=0xFFFF).contains(&imm) {
+    if !(-32768..=0xFFFF).contains(&imm) {
         Err(CodegenError::ImmediateOutOfRange {
             value: imm,
             bits: 16,

@@ -161,16 +161,45 @@ err_file_not_found:
   li r0, 2                          ; r0 = 2 (err: file not found)
   hlt
 
-trap_handler:                       ; assume write syscall for now since we only
-  li r3, 0xFFFF0000                 ; have one kind of trap
-  ldi16 r4, 0                       ; also, for now we clobber registers r3-r6
+err_unknown_trap:
+  li r0, 3                          ; r0 = 3 (err: unknown trap)
+  hlt
+
+trap_handler:
+  mfcr r3, cause
+  li r4, 0
+  beq r3, r4, syscall_handler
+  jmp err_unknown_trap
+
+syscall_handler:
+  li r3, 1
+  beq r0, r3, sys_write
+
+  li r3, 2
+  beq r0, r3, sys_read
+
+  jmp sys_unknown
+
+sys_unknown:
+  ldi16 r0, -1                      ; return -1
+  eret
+
+sys_write:
+  li r3, 0xFFFF0000
+  ldi16 r4, 0
   ldi16 r5, 1
 
-  loop:
+  sys_write_loop:
     ldm8 r6, [r1]                   ; load next byte
     str8 r6, [r3]                   ; write to TX
     add r1, r1, r5                  ; advance pointer
     add r4, r4, r5                  ; inc counter
-    bne r4, r2, loop                ; loop if counter != byte count
+    bne r4, r2, sys_write_loop      ; loop if counter != byte count
 
+  mov r0, r4                        ; return bytes written
+  eret
+
+sys_read:
+  li r1, 0xFFFF0004
+  ldm8 r0, [r1]                     ; return byte from RX
   eret
