@@ -15,7 +15,7 @@ fn main() {
 
     let source_pathbuf = PathBuf::from(&source_path);
     let base_dir = source_pathbuf.parent().expect("source path has no parent dir");
-    let preprocessed = asm::preprocessor::expand(&source, base_dir, None).unwrap_or_else(|e| {
+    let preprocessed = asm::preprocessor::expand(&source, base_dir).unwrap_or_else(|e| {
         eprintln!("Error during preprocessing: {:?}", e);
         std::process::exit(1)
     });

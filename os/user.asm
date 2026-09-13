@@ -5,12 +5,15 @@ jmp start
 
 .include "stdlib.asm"
 
+.define ECHOBUF 0x2800
+.define ECHOBUFSZ 200
+
 start:
-  ldi16 r8, 0x2800                ; echo_buffer at 0x2800 - 0x28c8 (200 bytes)
+  ldi16 r8, ECHOBUF               ; echo_buffer at 0x2800 - 0x28c8 (200 bytes)
 
   read:
     mov r1, r8
-    ldi16 r2, 200
+    ldi16 r2, ECHOBUFSZ
     call stdlib_readline
     mov r9, r0                    ; r9 = bytes read
     jmp print

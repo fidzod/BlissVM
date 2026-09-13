@@ -1,57 +1,70 @@
 ; kernel.asm
 
+.define SPINIT 0x1FFC
+
+.define MAGIC 0xB2155F2D
+
+.define TXADDR 0xFFFF0000
+.define RXADDR 0xFFFF0004
+.define DISKSECT 0xFFFF0010
+.define DISKBUF 0xFFFF0014
+.define DISKCMD 0xFFFF0018
+
+.define KERNELBUF 0x1000
+.define USERSTART 0x2000
+
 kernel_start:
   li r0, trap_handler                 ; install trap handler
   mtcr tvec, r0
 
-  li sp, 0x1FFC                       ; initialise stack pointer
+  li sp, SPINIT                       ; initialise stack pointer
 
 load_superblock:
-  li r0, 0xFFFF0010                   ; load superblock
+  li r0, DISKSECT                     ; load superblock
   li r1, 0                            ; sector 0 (superblock)
   str32 r1, [r0]
 
-  li r0, 0xFFFF0014                   ; disk buffer = 0x1000
-  li r2, 0x1000
+  li r0, DISKBUF                      ; disk buffer = KERNELBUF
+  li r2, KERNELBUF
   str16 r2, [r0]
 
-  li r0, 0xFFFF0018                   ; trigger load
+  li r0, DISKCMD                      ; trigger load
   li r1, 0
   str8 r1, [r0]
 
   ldm32 r1, [r2]                      ; r1 = magic number
 
-  li r2, 0xB2155F2D
+  li r2, MAGIC
   bne r1, r2, err_invalid_superblock
 
 load_root_inode:
-  li r0, 0xFFFF0010                   ; load inode table
+  li r0, DISKSECT                     ; load inode table
   li r1, 1                            ; sector 1
   str32 r1, [r0]
 
-  li r0, 0xFFFF0014                   ; disk buffer = 0x1000
-  li r2, 0x1000
+  li r0, DISKBUF                      ; disk buffer = KERNELBUF
+  li r2, KERNELBUF
   str16 r2, [r0]
 
-  li r0, 0xFFFF0018                   ; trigger load
+  li r0, DISKCMD                      ; trigger load
   li r1, 0
   str8 r1, [r0]
 
   ldm32 r1, [r2 + 72]                 ; r1 = block_pointers[0] of inode 1
 
 find_file:
-  li r0, 0xFFFF0010                   ; load root dir data block
+  li r0, DISKSECT                     ; load root dir data block
   str32 r1, [r0]
 
-  li r0, 0xFFFF0014                   ; disk buffer = 0x1000
-  li r2, 0x1000
+  li r0, DISKBUF                      ; disk buffer = KERNELBUF
+  li r2, KERNELBUF
   str16 r2, [r0]
 
-  li r0, 0xFFFF0018                   ; trigger load
+  li r0, DISKCMD                      ; trigger load
   li r1, 0
   str8 r1, [r0]
 
-  li r0, 0x1000                       ; r0 = entry_ptr
+  li r0, KERNELBUF                    ; r0 = entry_ptr
   li r1, 18                           ; r1 = remaining
   ldi16 r2, 0                         ; r2 = const 0
 
@@ -94,7 +107,7 @@ target:
   .str "user.bin"
 
 load_file_inode:
-  li r0, 0xFFFF0010                   ; load inode table
+  li r0, DISKSECT                     ; load inode table
   mov r1, r3                          ; r1 = inode_block = (1 + N / 8)
   ldi16  r2, 3
   slr  r1, r1, r2
@@ -102,11 +115,11 @@ load_file_inode:
   add r1, r1, r2
   str32 r1, [r0]
 
-  li r0, 0xFFFF0014                   ; disk buffer = 0x1000
-  li r2, 0x1000
+  li r0, DISKBUF                      ; disk buffer = KERNELBUF
+  li r2, KERNELBUF
   str16 r2, [r0]
 
-  li r0, 0xFFFF0018                   ; trigger load
+  li r0, DISKCMD                      ; trigger load
   li r1, 0
   str8 r1, [r0]
 
@@ -120,7 +133,7 @@ load_file_inode:
   add r3, r2, r0                      ; r3 = pointer to block pointers
 
 load_file_data:
-  li r4, 0x2000                       ; r4 = current load address
+  li r4, USERSTART                    ; r4 = current load address
   ldi16 r5, 0                         ; r5 = block counter
   ldi16 r6, 8                         ; r6 = max blocks
   ldi16 r7, 0                         ; r7 = const 0
@@ -130,13 +143,13 @@ load_file_data:
     ldm32 r1, [r3]                    ; r1 = block number
     beq r1, r7, jump_to_user          ; null pointer = end of file
 
-    li r0, 0xFFFF0010                 ; disk_sector = r1
+    li r0, DISKSECT                   ; disk_sector = r1
     str32 r1, [r0]
 
-    li r0, 0xFFFF0014                 ; disk_buffer = r4
+    li r0, DISKBUF                    ; disk_buffer = r4
     str16 r4, [r0]
 
-    li r0, 0xFFFF0018                 ; trigger load
+    li r0, DISKCMD                    ; trigger load
     str8 r7, [r0]
 
     ldi16 r2, 4
@@ -149,7 +162,7 @@ load_file_data:
     bal r14, block_loop
 
 jump_to_user:
-  li r0, 0x2000
+  li r0, USERSTART
   mtcr epc, r0
   eret
 
@@ -212,7 +225,7 @@ trap_exit:
   ldm32 r12, [sp + 48]
   ldm32 r14, [sp + 52]
 
-  ldm32 r0, [sp]                     ; restore return value into r0
+  ldm32 r0, [sp]                      ; restore return value into r0
   mfcr sp, scratch
 
   eret
@@ -227,27 +240,25 @@ syscall_handler:
   jmp sys_unknown
 
 sys_unknown:
-  ldi16 r0, -1                        ; return -1
+  li r0, -1                        ; return -1
   bal lr, trap_exit
 
 sys_write:
-  li r3, 0xFFFF0000
+  li r3, TXADDR
   ldi16 r4, 0
   ldi16 r5, 1
   beq r4, r2, sys_write_done
-
   sys_write_loop:
     ldm8 r6, [r1]                     ; load next byte
     str8 r6, [r3]                     ; write to TX
     add r1, r1, r5                    ; advance pointer
     add r4, r4, r5                    ; inc counter
     bne r4, r2, sys_write_loop        ; loop if counter != byte count
-
-  sys_write_done:
-    mov r0, r4                        ; return bytes written
-    bal lr, trap_exit
+sys_write_done:
+  mov r0, r4                          ; return bytes written
+  bal lr, trap_exit
 
 sys_read:
-  li r1, 0xFFFF0004
+  li r1, RXADDR
   ldm8 r0, [r1]                       ; return byte from RX
   bal lr, trap_exit

@@ -47,8 +47,8 @@ stdlib_strcmp:
 stdlib_len:
   hlt                             ; todo
 
-int_to_str:
+stdlib_int_to_str:
   hlt                             ; todo
 
-str_to_int:
+stdlib_str_to_int:
   hlt                             ; todo
