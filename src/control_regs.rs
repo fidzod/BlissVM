@@ -1,7 +1,7 @@
 #[repr(usize)]
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ControlReg {
-    Tvec, Epc, Cause, Mode
+    Tvec, Epc, Cause, Mode, Scratch
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -14,7 +14,7 @@ impl TryFrom<u32> for ControlReg {
     type Error = ();
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
-        if value < 4 {
+        if value < 5 {
             Ok(unsafe { std::mem::transmute::<usize, Self>(value as usize) })
         } else {
             Err(())
@@ -23,11 +23,11 @@ impl TryFrom<u32> for ControlReg {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub struct ControlRegs([u32; 4]);
+pub struct ControlRegs([u32; 5]);
 
 impl Default for ControlRegs {
     fn default() -> Self {
-        Self([0, 0, 0, 1])
+        Self([0, 0, 0, 1, 0])
     }
 }
 

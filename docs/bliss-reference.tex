@@ -82,10 +82,11 @@ only with \code{MFCR} / \code{MTCR}.
 \toprule
 \textbf{Name} & \textbf{Index} & \textbf{Description} \\
 \midrule
-\reg{tvec}  & 0 & Trap vector: address of the supervisor trap handler. \\
-\reg{epc}   & 1 & Exception PC: return address saved on trap. \\
-\reg{cause} & 2 & Trap cause code (\code{0} = syscall, \dots). \\
-\reg{mode}  & 3 & Current privilege level (\code{0} = user, \code{1} = supervisor). \\
+\reg{tvec}    & 0 & Trap vector: address of the supervisor trap handler. \\
+\reg{epc}     & 1 & Exception PC: return address saved on trap. \\
+\reg{cause}   & 2 & Trap cause code (\code{0} = syscall, \dots). \\
+\reg{mode}    & 3 & Current privilege level (\code{0} = user, \code{1} = supervisor). \\
+\reg{scratch} & 4 & Kernel scratch: one-word stash used during trap entry/exit. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -121,6 +122,59 @@ Neither \code{ECALL} nor \code{ERET} saves or restores any general-purpose
 register. Preserving state across a trap is entirely the trap handler's
 responsibility.
 \end{blissnote}
+
+\subsection{Trap frame}
+
+The kernel trap handler saves the full user register file onto the kernel stack
+on entry and restores it on exit. The \reg{scratch} control register bootstraps
+the save: it holds \reg{r0} for one instruction so the handler has a free GPR to
+build the frame.
+
+\textbf{Entry:}
+\begin{lstlisting}
+mtcr scratch, r0      ; park r0 -- no GPR clobbered
+ldi16 r0, 56          ; frame = 14 registers * 4 bytes
+sub r13, r13, r0      ; grow stack
+str32 r1,  [r13 +  4] ; save r1-r14 ...
+; ...
+str32 r14, [r13 + 52]
+mfcr r0, scratch      ; recover original r0 (syscall number)
+str32 r0,  [r13 +  0] ; save at frame slot 0
+\end{lstlisting}
+
+\textbf{Frame layout} (SP points to base after entry):
+
+\begin{center}
+\begin{tabular}{@{}C{1.4cm} L{3.6cm} @{\hspace{2em}} C{1.4cm} L{3.6cm}@{}}
+\toprule
+\textbf{Offset} & \textbf{Register} & \textbf{Offset} & \textbf{Register} \\
+\midrule
++0  & r0 (syscall \# / ret) & +28 & r7  \\
++4  & r1                    & +32 & r8  \\
++8  & r2                    & +36 & r9  \\
++12 & r3                    & +40 & r10 \\
++16 & r4                    & +44 & r11 \\
++20 & r5                    & +48 & r12 \\
++24 & r6                    & +52 & r14 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent r13 (SP) is not saved --- the frame IS the stack adjustment.
+
+\textbf{Exit} (r0 holds the return value):
+\begin{lstlisting}
+str32 r0,  [r13 +  0] ; write return value into frame
+ldi16 r0, 56
+add r0, r13, r0        ; r0 = reclaimed SP
+mtcr scratch, r0       ; stash it
+ldm32 r1,  [r13 +  4] ; restore r1-r14 ...
+; ...
+ldm32 r14, [r13 + 52]
+ldm32 r0,  [r13 +  0] ; load return value
+mfcr r13, scratch      ; SP = reclaimed SP
+eret
+\end{lstlisting}
 
 % ===========================================================================
 \section{Memory map}
@@ -190,6 +244,7 @@ for now.
 \code{BLTU}, \code{BGEU} & Branch if less-than / greater-or-equal (unsigned). \\
 \code{BAL}               & Branch and link: PC-relative jump, save return address to a register. \\
 \code{BALR}              & Branch and link to register: jump to an address held in a register, save return address. \\
+\code{BR}                & Branch to register: jump to an address held in a register, no link saved. \\
 \code{HLT}               & Halt. \\
 \code{NOP}               & No operation. \\
 \bottomrule
@@ -224,8 +279,9 @@ all formats.
 \end{center}
 \noindent Used by: \code{ADD}, \code{SUB}, \code{MUL}, \code{AND}, \code{OR},
 \code{XOR}, \code{SLL}, \code{SLR}, \code{SAR}, \code{MOV}, \code{NOT},
-\code{BALR}. For \code{BALR}, \code{rd} is the link destination, \code{rs1} is
-the branch target, and \code{rs2} is unused.
+\code{BALR}, \code{BR}. For \code{BALR}, \code{rd} is the link destination,
+\code{rs1} is the branch target, and \code{rs2} is unused. For \code{BR},
+\code{rs1} is the branch target; \code{rd} and \code{rs2} are unused (encode as zero).
 
 \subsection*{I --- two registers + immediate}
 \begin{center}
@@ -320,9 +376,10 @@ source GPR.
 31 & 0x1F & \code{MFCR}   & C \\
 32 & 0x20 & \code{MTCR}   & C \\
 33 & 0x21 & \code{BALR}   & R \\
+34 & 0x22 & \code{BR}     & R \\
 \end{longtable}
 \end{center}
-\noindent Opcodes 34--63 are reserved.
+\noindent Opcodes 35--63 are reserved.
 
 % ===========================================================================
 \section{Pseudo-instructions}
@@ -333,9 +390,9 @@ instructions.
 
 \begin{blissnote}[Clobbered registers]
 Most of these use \reg{r0} as a temporary and clobber it --- do not hold a live
-value in \reg{r0} across a \code{PUSH}, \code{POP}, \code{RET}, or \code{ADDI}.
-\code{CALL} instead overwrites \reg{r14} (the link register) with the return
-address.
+value in \reg{r0} across a \code{PUSH}, \code{POP}, \code{JMP label}, or
+\code{ADDI}. \code{CALL} overwrites \reg{r14} with the return address.
+\code{RET} and \code{JMP rs} clobber nothing.
 \end{blissnote}
 
 \begin{center}
@@ -347,18 +404,18 @@ address.
 \code{PUSH rs}      & \code{LDI16 r0, 4} $\cdot$ \code{SUB r13, r13, r0} $\cdot$ \code{STR32 rs, [r13]} & \code{r0} \\
 \code{POP rd}       & \code{LDM32 rd, [r13]} $\cdot$ \code{LDI16 r0, 4} $\cdot$ \code{ADD r13, r13, r0} & \code{r0} \\
 \code{CALL label}   & \code{BAL r14, label} & \code{r14} \\
-\code{RET}          & \code{BALR r0, r14} & \code{r0} \\
+\code{RET}          & \code{BR r14} & --- \\
 \code{JMP label}    & \code{BAL r0, label} & \code{r0} \\
-\code{JMP rs}       & \code{BALR r0, rs} & \code{r0} \\
+\code{JMP rs}       & \code{BR rs} & --- \\
 \code{ADDI rd, imm} & \code{LDI16 r0, imm} $\cdot$ \code{ADD rd, rd, r0} \; (imm fits 16 bits) & \code{r0} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \noindent \code{CALL} is a single \code{BAL r14, label}: it sets \reg{r14} to the
-return address and jumps. \code{RET} is a single \code{BALR r0, r14}: it jumps to
-whatever \reg{r14} holds. There is no implicit stack traffic --- saving \reg{r14}
-is the callee's job (see below).
+return address and jumps. \code{RET} is a single \code{BR r14}: it jumps to
+whatever \reg{r14} holds and clobbers nothing. There is no implicit stack traffic
+--- saving \reg{r14} is the callee's job (see below).
 
 % ===========================================================================
 \section{Calling convention}

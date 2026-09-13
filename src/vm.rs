@@ -228,6 +228,10 @@ impl Vm {
                 *self.registers.get_mut(link) = self.registers.get(Register::PC);
                 *self.registers.get_mut(Register::PC) = self.registers.get(target);
                 Ok(StepResult::Continue)
+            },
+            Instruction::Br { target } => {
+                *self.registers.get_mut(Register::PC) = self.registers.get(target);
+                Ok(StepResult::Continue)
             }
         }
     }

@@ -18,14 +18,15 @@
 Two privilege levels: **user** (0) and **supervisor** (1). The current mode is tracked in
 the `mode` control register. The CPU boots in supervisor mode.
 
-Four **control registers** exist alongside the general-purpose file:
+Five **control registers** exist alongside the general-purpose file:
 
-| Name    | Index | Description                                         |
-|---------|-------|-----------------------------------------------------|
-| `tvec`  | 0     | Trap vector: address of the supervisor trap handler |
-| `epc`   | 1     | Exception PC: return address saved on trap          |
-| `cause` | 2     | Trap cause code (0 = syscall, …)                    |
-| `mode`  | 3     | Current privilege level (0 = user, 1 = supervisor)  |
+| Name      | Index | Description                                         |
+|-----------|-------|-----------------------------------------------------|
+| `tvec`    | 0     | Trap vector: address of the supervisor trap handler |
+| `epc`     | 1     | Exception PC: return address saved on trap          |
+| `cause`   | 2     | Trap cause code (0 = syscall, …)                    |
+| `mode`    | 3     | Current privilege level (0 = user, 1 = supervisor)  |
+| `scratch` | 4     | Kernel scratch: one-word stash for trap entry/exit  |
 
 Control registers are read and written with `MFCR`/`MTCR`.
 
@@ -44,6 +45,63 @@ When `ERET` executes:
 2. `PC ← epc`
 
 No registers are saved or restored automatically; that is the trap handler's responsibility.
+
+### Trap frame
+
+The kernel trap handler saves the full user register file onto the kernel stack
+on entry and restores it on exit. The `scratch` control register is used to
+bootstrap the save without clobbering any GPR first.
+
+**Entry protocol:**
+
+```
+mtcr scratch, r0       ; park r0 in scratch CR — no GPR clobbered
+ldi16 r0, 56           ; frame = 14 registers × 4 bytes
+sub r13, r13, r0       ; grow kernel stack
+str32 r1,  [r13 +  4]  ; save r1–r14
+str32 r2,  [r13 +  8]
+; ... r3–r12 ...
+str32 r14, [r13 + 52]
+mfcr r0, scratch        ; recover original r0 (syscall number)
+str32 r0,  [r13 +  0]  ; save at frame slot 0
+; r1, r2, r3 are still live — syscall args immediately readable
+```
+
+**Frame layout** (SP points to base of frame after entry):
+
+| Offset | Register saved |
+|--------|----------------|
+|  +0    | r0 (syscall number on entry; return value on exit) |
+|  +4    | r1  |
+|  +8    | r2  |
+| +12    | r3  |
+| +16    | r4  |
+| +20    | r5  |
+| +24    | r6  |
+| +28    | r7  |
+| +32    | r8  |
+| +36    | r9  |
+| +40    | r10 |
+| +44    | r11 |
+| +48    | r12 |
+| +52    | r14 |
+
+r13 (SP) is not saved — the frame IS the stack adjustment.
+
+**Exit protocol** (r0 holds the return value):
+
+```
+str32 r0,  [r13 +  0]  ; write return value into frame
+ldi16 r0, 56
+add r0, r13, r0         ; r0 = SP + 56 (reclaimed SP)
+mtcr scratch, r0        ; stash reclaimed SP in scratch
+ldm32 r1,  [r13 +  4]  ; restore r1–r14
+; ... r2–r12 ...
+ldm32 r14, [r13 + 52]
+ldm32 r0,  [r13 +  0]  ; load return value
+mfcr r13, scratch       ; SP = reclaimed SP
+eret
+```
 
 ## Memory Map
 
@@ -83,6 +141,7 @@ Memory protection is not implemented; user code may access any address.
 - `BLTU`, `BGEU`     — branch if less than/greater-or-equal (unsigned)
 - `BAL`              — branch and link: PC-relative jump, save return address to register
 - `BALR`             — branch and link to register: jump to address in register, save return address
+- `BR`               — branch to register: jump to address in register, no link saved
 - `HLT`              — halt
 - `NOP`              — no operation
 
@@ -97,7 +156,7 @@ Memory protection is not implemented; user code may access any address.
 All instructions are 32 bits wide. The opcode is always 6 bits [31:26].
 
 **R — register operations** `| 6: opcode | 4: rd | 4: rs1 | 4: rs2 | 14: — |`
-ADD, SUB, MUL, AND, OR, XOR, SLL, SLR, SAR, MOV, NOT, BALR (rd=link dest, rs1=target, rs2 unused)
+ADD, SUB, MUL, AND, OR, XOR, SLL, SLR, SAR, MOV, NOT, BALR (rd=link dest, rs1=target, rs2 unused), BR (rs1=target, rd and rs2 unused)
 
 **I — two registers + immediate** `| 6: opcode | 4: r1 | 4: r2 | 18: imm |`
 Loads (r1=dst, r2=base, imm=offset), stores (r1=src, r2=base, imm=offset),
@@ -151,15 +210,16 @@ HLT, NOP, ECALL, ERET
 |  31 | 0x1F | `MFCR`   | C      |
 |  32 | 0x20 | `MTCR`   | C      |
 |  33 | 0x21 | `BALR`   | R      |
+|  34 | 0x22 | `BR`     | R      |
 
-Opcodes 34–63 are reserved.
+Opcodes 35–63 are reserved.
 
 ## Pseudo-instructions (assembler-expanded)
 
 Pseudo-instructions are expanded by the assembler into one or more real instructions.
 Several pseudo-instructions use **r0 as a temporary** and will clobber it — do not hold
-a live value in r0 across a `PUSH`, `POP`, `RET`, or `ADDI`. `CALL` instead clobbers
-**r14**, overwriting it with the return address.
+a live value in r0 across a `PUSH`, `POP`, `JMP label`, or `ADDI`. `CALL` instead clobbers
+**r14**, overwriting it with the return address. `RET` and `JMP rs` clobber nothing.
 
 | Pseudo-instruction  | Expands to                                                   | Clobbers |
 |---------------------|--------------------------------------------------------------|----------|
@@ -167,9 +227,9 @@ a live value in r0 across a `PUSH`, `POP`, `RET`, or `ADDI`. `CALL` instead clob
 | `PUSH rs`           | `LDI16 r0, 4` · `SUB r13, r13, r0` · `STR32 rs, [r13]`    | r0       |
 | `POP rd`            | `LDM32 rd, [r13]` · `LDI16 r0, 4` · `ADD r13, r13, r0`    | r0       |
 | `CALL label`        | `BAL r14, label`                                            | r14      |
-| `RET`               | `BALR r0, r14`                                              | r0       |
+| `RET`               | `BR r14`                                                    | —        |
 | `JMP label`         | `BAL r0, label`                                             | r0       |
-| `JMP rs`            | `BALR r0, rs`                                               | r0       |
+| `JMP rs`            | `BR rs`                                                     | —        |
 | `ADDI rd, imm`      | `LDI16 r0, imm` · `ADD rd, rd, r0`  (imm must fit 16 bits) | r0       |
 
 ## Calling Convention
@@ -201,7 +261,7 @@ any of them must push them on entry and pop them before returning.
 ### Call sequence (using pseudo-instructions)
 
 `CALL` is a single `BAL r14, label` — it sets r14 to the return address and jumps.
-`RET` is a single `BALR r0, r14` — it jumps to whatever is in r14.
+`RET` is a single `BR r14` — it jumps to whatever is in r14 and clobbers nothing.
 
 **Leaf functions** (those that make no further calls) need no prologue or epilogue:
 

@@ -125,6 +125,9 @@ fn expect_memref(
     }
 }
 
+fn enc_r(op: u32, a: u32) -> u32 {
+    (op << 26) | (a << 22)
+}
 fn enc_rr(op: u32, a: u32, b: u32) -> u32 {
     (op << 26) | (a << 22) | (b << 18)
 }
@@ -168,6 +171,16 @@ fn encode_rr_instr(
     let dst = expect_reg(operands, 0, mnemonic)?;
     let src = expect_reg(operands, 1, mnemonic)?;
     Ok(vec![enc_rr(op, dst as u32, src as u32)])
+}
+
+fn encode_r_instr(
+    op: u32,
+    mnemonic: &str,
+    operands: &[Operand],
+) -> Result<Vec<u32>, CodegenError> {
+    check_operand_count(mnemonic, operands, 1)?;
+    let rs = expect_reg(operands, 0, mnemonic)?;
+    Ok(vec![enc_r(op, rs as u32)])
 }
 
 fn encode_nullary(op: u32, mnemonic: &str, operands: &[Operand]) -> Result<Vec<u32>, CodegenError> {
@@ -273,7 +286,7 @@ fn encode_call(
 
 fn encode_ret(mnemonic: &str, operands: &[Operand]) -> Result<Vec<u32>, CodegenError> {
     check_operand_count(mnemonic, operands, 0)?;
-    Ok(vec![enc_rr(0x21, Register::R0 as u32, Register::LR as u32)])
+    Ok(vec![enc_r(0x22, Register::LR as u32)])
 }
 
 fn encode_jmp(
@@ -293,7 +306,7 @@ fn encode_jmp(
                 )]
             })
             .ok_or(CodegenError::UndefinedLabel(name.clone())),
-        Operand::Reg(rs) => Ok(vec![enc_rr(0x21, Register::R0 as u32, *rs as u32)]),
+        Operand::Reg(rs) => Ok(vec![enc_r(0x22, *rs as u32)]),
         _ => Err(CodegenError::WrongOperandType {
             mnemonic: mnemonic.to_string(),
             position: 0,
@@ -443,6 +456,7 @@ fn encode_instruction(
         "call" => encode_call(mnemonic, operands, symbols, current_address),
         "ret" => encode_ret(mnemonic, operands),
         "jmp" => encode_jmp(mnemonic, operands, symbols, current_address),
+        "br" => encode_r_instr(0x22, mnemonic, operands),
         _ => Err(CodegenError::UnknownMnemonic(mnemonic.to_string())),
     }
 }

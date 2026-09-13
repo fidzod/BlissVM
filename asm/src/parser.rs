@@ -139,6 +139,7 @@ impl Parser {
             "epc" => Some(ControlReg::Epc),
             "cause" => Some(ControlReg::Cause),
             "mode" => Some(ControlReg::Mode),
+            "scratch" => Some(ControlReg::Scratch),
             _ => None,
         }
     }

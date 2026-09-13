@@ -87,7 +87,8 @@ boundaries (MSB left).
 \smallskip
 {\footnotesize
 \textbf{R}: \code{rd$\leftarrow$rs1 op rs2}; \code{MOV}/\code{NOT} ignore
-\code{rs2}; \code{BALR} uses \code{rd}=link, \code{rs1}=target.\ \
+\code{rs2}; \code{BALR} uses \code{rd}=link, \code{rs1}=target;
+\code{BR} uses \code{rs1}=target only (no link).\ \
 \textbf{I}: load/store \code{r1}=reg, \code{r2}=base, \code{imm}=offset;
 branch \code{r1},\code{r2}=operands, \code{imm}=signed PC-rel ($\pm$512\,KB).\ \
 \textbf{U}: \code{BAL} \code{imm}=signed PC-rel ($\pm$8\,MB).\ \
@@ -108,7 +109,8 @@ branch \code{r1},\code{r2}=operands, \code{imm}=signed PC-rel ($\pm$512\,KB).\ \
 \code{0x09} & \code{STR8}   & I & \code{0x1B} & \code{BGEU}  & I \\
 \code{0x0A} & \code{STR16}  & I & \code{0x1C} & \code{BAL}   & U \\
 \code{0x0B} & \code{STR32}  & I & \code{0x21} & \code{BALR}  & R \\
-\code{0x0C} & \code{ADD}    & R & \code{0x1D} & \code{ECALL} & N \\
+\code{0x0C} & \code{ADD}    & R & \code{0x22} & \code{BR}    & R \\
+\code{0x0D} & \code{SUB}    & R & \code{0x1D} & \code{ECALL} & N \\
 \code{0x0D} & \code{SUB}    & R & \code{0x1E} & \code{ERET}  & N \\
 \code{0x0E} & \code{MUL}    & R & \code{0x1F} & \code{MFCR}  & C \\
 \code{0x0F} & \code{AND}    & R & \code{0x20} & \code{MTCR}  & C \\
@@ -120,7 +122,7 @@ branch \code{r1},\code{r2}=operands, \code{imm}=signed PC-rel ($\pm$512\,KB).\ \
 \code{0x15} & \code{SAR}    & R & & & \\
 \end{tabular}
 \par\vspace{0.15em}\noindent
-{\footnotesize Opcodes \code{0x22}--\code{0x3F} (34--63) reserved.}
+{\footnotesize Opcodes \code{0x23}--\code{0x3F} (35--63) reserved.}
 
 % ===========================================================================
 \section{Registers}
@@ -134,8 +136,9 @@ branch \code{r1},\code{r2}=operands, \code{imm}=signed PC-rel ($\pm$512\,KB).\ \
 \code{r15 PC}  & program counter (not writable) \\
 \end{tabular}
 \par\vspace{0.3em}\noindent
-{\footnotesize\textbf{Control registers} --- \code{MFCR}/\code{MTCR}, index 0--3:
-\code{tvec}\,0, \code{epc}\,1, \code{cause}\,2, \code{mode}\,3.
+{\footnotesize\textbf{Control registers} --- \code{MFCR}/\code{MTCR}, index 0--4:
+\code{tvec}\,0, \code{epc}\,1, \code{cause}\,2, \code{mode}\,3, \code{scratch}\,4.
+\code{scratch} is used by the trap entry/exit protocol to park one GPR.
 CPU boots in supervisor mode; \code{SP}${=}$\code{0x1FFC} at boot.}
 
 % ===========================================================================
@@ -159,7 +162,10 @@ CPU boots in supervisor mode; \code{SP}${=}$\code{0x1FFC} at boot.}
 \code{ECALL}: \code{epc$\leftarrow$PC}, \code{cause$\leftarrow$0},
 \code{mode$\leftarrow$sup}, \code{PC$\leftarrow$tvec}. \\
 \code{ERET}: \code{mode$\leftarrow$user}, \code{PC$\leftarrow$epc}. \\
-{\footnotesize No registers saved automatically --- the handler does it.}
+{\footnotesize No registers saved automatically. Handler saves 14 GPRs
+(\code{r0}--\code{r12}, \code{r14}) onto the kernel stack as a 56-byte trap
+frame. \code{scratch} CR bootstraps entry: \code{mtcr scratch,r0} parks
+\code{r0} so the frame can be built without clobbering any GPR first.}
 
 % ===========================================================================
 \section{Syscalls}
@@ -177,15 +183,17 @@ Number in \code{r0}, args in \code{r1--r3}, return in \code{r0}.
 \code{PUSH rs}     & \code{SP\,-=\,4};\; \code{STR32 rs,[SP]} \\
 \code{POP rd}      & \code{LDM32 rd,[SP]};\; \code{SP\,+=\,4} \\
 \code{CALL lbl}    & \code{BAL r14,lbl} \quad(clobbers \code{r14}) \\
-\code{RET}         & \code{BALR r0,r14} \\
-\code{JMP lbl/rs}  & \code{BAL r0,lbl} / \code{BALR r0,rs} \\
+\code{RET}         & \code{BR r14} \quad(clobbers nothing) \\
+\code{JMP lbl}     & \code{BAL r0,lbl} \quad(clobbers \code{r0}) \\
+\code{JMP rs}      & \code{BR rs} \quad(clobbers nothing) \\
 \code{ADDI rd,imm} & \code{LDI16 r0,imm};\; \code{ADD rd,rd,r0} \\
 \end{tabular}
 \par\vspace{0.2em}\noindent
-{\footnotesize \code{LI} clobbers nothing, \code{CALL} clobbers \code{r14}, the
-rest clobber \code{r0}. \code{CALL}/\code{RET} do no stack traffic: a non-leaf
-function does \code{push lr} first and \code{pop lr} before \code{RET}
-(same for \code{r8--r12} if used); leaf functions need neither.}
+{\footnotesize \code{LI}/\code{RET}/\code{JMP rs} clobber nothing; \code{CALL}
+clobbers \code{r14}; \code{PUSH}/\code{POP}/\code{JMP lbl}/\code{ADDI} clobber
+\code{r0}. No stack traffic on \code{CALL}/\code{RET}: a non-leaf function does
+\code{push lr} first and \code{pop lr} before \code{RET} (same for \code{r8--r12}
+if used); leaf functions need neither.}
 
 % ===========================================================================
 \section{BlissFS}

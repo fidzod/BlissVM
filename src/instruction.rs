@@ -148,11 +148,14 @@ pub enum Instruction {
     Balr {
         link: Register,
         target: Register,
-    }
+    },
+    Br {
+        target: Register,
+    },
 }
 
 impl Instruction {
-pub fn decode(i: u32) -> Result<Instruction, VmError> {
+    pub fn decode(i: u32) -> Result<Instruction, VmError> {
         let opcode = i >> (32 - 6);
 
         fn reg(i: u32, pos: u32) -> Register {
@@ -160,7 +163,7 @@ pub fn decode(i: u32) -> Result<Instruction, VmError> {
         }
 
         fn ctrl_reg(i: u32, pos: u32) -> ControlReg {
-            ControlReg::try_from((i >> pos) & 0x3).expect("control register field masked to 2 bits")
+            ControlReg::try_from((i >> pos) & 0xF).expect("control register field masked to 4 bits")
         }
 
         fn i18(i: u32) -> i32 {
@@ -328,7 +331,10 @@ pub fn decode(i: u32) -> Result<Instruction, VmError> {
             }),
             0x21 => Ok(Instruction::Balr {
                 link: rd(i),
-                target: rs1(i)
+                target: rs1(i),
+            }),
+            0x22 => Ok(Instruction::Br {
+                target: rd(i)
             }),
             _ => Err(VmError::UnknownOpcode(opcode as u8)),
         }
