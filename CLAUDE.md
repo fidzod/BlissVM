@@ -51,41 +51,48 @@ is.
 6. ✅ Filesystem (BlissFS)
 7. ✅ Stack + calling convention (BALR, pseudo-ops, register ABI)
 8. ✅ Syscall dispatcher (write + read, trap handler)
-9. 🔄 Standard library + assembler includes
-10. ⬜ Real OS — boot process, process model, scheduler, exit/exec syscalls
+9. ✅ Standard library + assembler includes
+10. 🔄 Real OS — boot process, process model, scheduler, exit/exec syscalls
 11. ⬜ Ikari (interactive shell)
 12. ⬜ Memory protection + privilege levels
 13. ⬜ Gendo (compiled language targeting Bliss ISA)
 
 ## Current Focus
 
-**Standard library + assembler includes (Phase 3 — in progress).**
+**Real OS — boot, process model, scheduler (Phase 4 — in progress).**
 
-The assembler needs a `.include "file.asm"` directive. Implementation: before
-the first pass, recursively expand includes by splicing file contents in at the
-point of the directive, producing one flat line stream for the existing two-pass
-assembler. No changes to the assembler itself are required.
+Phase 3 is complete: `.include`, `.define`, `stdlib_readline`, and the full
+trap frame are all working. The memory layout has been redesigned for
+multi-process support:
 
-`stdlib.asm` is the first included file. Initial contents: `stdlib_readline` —
-reads chars via `sys_read` into a caller-supplied buffer, returns on `\n`,
-gives back length. End goal: `user.asm` uses `stdlib_readline` rather than
-doing it inline.
+```
+0x0000–0x0FFF   Kernel code            (4 KB)
+0x1000–0x11FF   Kernel disk scratch    (512 B, one sector)
+0x1200–0x15FF   Process table          (4 slots × 256 B; slot N at 0x1200 + N<<8)
+0x1600–0x17FF   Kernel data            (CURPID at 0x1600; rest reserved)
+0x1800–0x1FFF   Kernel stack           (2 KB; SP starts at 0x1FFC)
+0x2000–0x3FFF   Process 0              (8 KB; code at base, stack top 0x3FFC)
+0x4000–0x5FFF   Process 1              (8 KB)
+0x6000–0x7FFF   Process 2              (8 KB)
+0x8000–0x9FFF   Process 3              (8 KB)
+0xFFFF0000+     MMIO (unchanged)
+```
 
-**Real OS — boot, process model, scheduler (Phase 4).**
+Phase 4 checkpoints:
 
-Before Ikari, the kernel needs to become a real operating system:
-
-- A genuine boot process: the CPU starts at a fixed address; the kernel sets
-  itself up, then explicitly hands control to user space.
-- A process table: fixed-size array of slots, each holding saved registers,
-  PC, SP, and status.
-- Cooperative scheduling to start (switch only on `exit` or `yield`); add
-  preemption once the VM has a timer interrupt and you can see why it's needed.
-- New syscalls: `exit` (0), `exec` (load a named file from disk into a process
-  slot and schedule it), `yield`. Disk access for user programs goes through
-  syscalls — no direct MMIO.
-- Each process gets its own stack region; the memory map will need updating.
-- Argument passing convention: r1 = argc, r2 = pointer to argv array.
+1. **Boot** — design the boot handoff: what is the "first process", how does
+   the kernel create process 0 and ERET into it?
+2. **Process table** — implement the 4-slot table in kernel.asm; formalize
+   the per-slot layout (status, saved PC, saved SP, saved registers).
+3. **Syscalls** — `exit` (0): mark slot dead, schedule next; `yield`: save
+   state, schedule next; `exec`: load named file from disk into a slot, set
+   it runnable.
+4. **Scheduler** — a simple round-robin scan over the process table; called
+   from `exit` and `yield`.
+5. **Memory map** — update kernel.asm defines (SPINIT, USERSTART, per-process
+   stack tops) to match new layout.
+6. **Multi-process test** — a minimal two-process smoke test running on the
+   new kernel.
 
 **Ikari (Phase 5).**
 

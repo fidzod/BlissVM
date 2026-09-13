@@ -105,19 +105,38 @@ eret
 
 ## Memory Map
 
-| Address range                   | Use                                                |
-|---------------------------------|----------------------------------------------------|
-| `0x0000_0000` – `0x0000_0FFF`  | Kernel code and data                               |
-| `0x0000_1000` – `0x0000_11FF`  | Kernel scratch buffer (disk I/O, one sector)       |
-| `0x0000_1200` – `0x0000_1FFB`  | Kernel stack (grows downward; SP starts at 0x1FFC) |
-| `0x0000_2000` –                | User program                                       |
-| `0xFFFF_0000`                  | Serial TX (write byte → stdout)                    |
-| `0xFFFF_0004`                  | Serial RX (read byte ← stdin, blocks until ready)  |
-| `0xFFFF_0010`                  | Disk sector register                               |
-| `0xFFFF_0014`                  | Disk buffer register                               |
-| `0xFFFF_0018`                  | Disk command (0 = read sector)                     |
+| Address range                   | Use                                                         |
+|---------------------------------|-------------------------------------------------------------|
+| `0x0000_0000` – `0x0000_0FFF`  | Kernel code                                                 |
+| `0x0000_1000` – `0x0000_11FF`  | Kernel disk scratch (512 B, one sector)                     |
+| `0x0000_1200` – `0x0000_15FF`  | Process table (4 slots × 256 B)                             |
+| `0x0000_1600` – `0x0000_17FF`  | Kernel data (current pid, reserved)                         |
+| `0x0000_1800` – `0x0000_1FFB`  | Kernel stack (grows downward; SP starts at `0x1FFC`)        |
+| `0x0000_2000` – `0x0000_3FFF`  | Process 0 (8 KB; code at base, stack top at `0x3FFC`)       |
+| `0x0000_4000` – `0x0000_5FFF`  | Process 1 (8 KB; code at base, stack top at `0x5FFC`)       |
+| `0x0000_6000` – `0x0000_7FFF`  | Process 2 (8 KB; code at base, stack top at `0x7FFC`)       |
+| `0x0000_8000` – `0x0000_9FFF`  | Process 3 (8 KB; code at base, stack top at `0x9FFC`)       |
+| `0xFFFF_0000`                  | Serial TX (write byte → stdout)                             |
+| `0xFFFF_0004`                  | Serial RX (read byte ← stdin, blocks until ready)           |
+| `0xFFFF_0010`                  | Disk sector register                                        |
+| `0xFFFF_0014`                  | Disk buffer register                                        |
+| `0xFFFF_0018`                  | Disk command (0 = read sector)                              |
 
 Memory protection is not implemented; user code may access any address.
+
+### Process table slot layout (256 bytes each, base at `0x1200 + pid × 0x100`)
+
+| Offset | Size | Field                                          |
+|--------|------|------------------------------------------------|
+| 0      | 4    | Status (0 = unused, 1 = runnable, 2 = running) |
+| 4      | 4    | Saved PC                                       |
+| 8      | 4    | Saved SP                                       |
+| 12     | 56   | Saved r0–r12, r14 (14 registers × 4 B)         |
+| 68     | 188  | Reserved                                       |
+
+Slot addressing: `slot_base = PTABLE + (pid << 8)`.
+
+`CURPID` at `0x1600` holds the pid of the currently running process (one word).
 
 ## Instruction Set
 
@@ -255,7 +274,7 @@ any of them must push them on entry and pop them before returning.
 ### Stack
 
 - Full descending: SP points to the last pushed value, grows toward lower addresses.
-- SP is initialised to `0x1FFC` at kernel boot.
+- Kernel SP is initialised to `0x1FFC` at boot; each process SP starts at the top of its 8 KB region (e.g. `0x3FFC` for process 0).
 - All pushes and pops are 4-byte aligned.
 
 ### Call sequence (using pseudo-instructions)
@@ -303,10 +322,13 @@ User programs trap into the kernel with `ECALL`. The convention:
 
 ### Syscall table
 
-| r0 | Name    | r1         | r2          | Returns       |
-|----|---------|------------|-------------|---------------|
-| 1  | `write` | buf ptr    | byte count  | —             |
-| 2  | `read`  | —          | —           | r0 = byte read (blocks until available) |
+| r0 | Name    | r1           | r2          | Returns                                  |
+|----|---------|--------------|-------------|------------------------------------------|
+| 1  | `write` | buf ptr      | byte count  | r0 = bytes written                       |
+| 2  | `read`  | —            | —           | r0 = byte read (blocks until available)  |
+| 3  | `exec`  | filename ptr | —           | r0 = pid of new process                  |
+| 4  | `yield` | —            | —           | — (returns when rescheduled)             |
+| 0  | `exit`  | —            | —           | (does not return)                        |
 
 ## Filesystem
 
