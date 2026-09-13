@@ -1,16 +1,19 @@
-pub mod codegen;
-pub mod parser;
-pub mod tokeniser;
+mod codegen;
+mod parser;
+mod tokeniser;
+pub mod preprocessor;
 
 use codegen::CodegenError;
 use parser::ParseError;
 use tokeniser::TokeniserError;
+use preprocessor::PreprocessorError;
 
 #[derive(Debug)]
 pub enum AssembleError {
     Tokenise(TokeniserError),
     Parse(ParseError),
     Codegen(CodegenError),
+    Preprocessor(PreprocessorError)
 }
 
 impl From<TokeniserError> for AssembleError {
@@ -28,6 +31,12 @@ impl From<ParseError> for AssembleError {
 impl From<CodegenError> for AssembleError {
     fn from(e: CodegenError) -> Self {
         AssembleError::Codegen(e)
+    }
+}
+
+impl From<PreprocessorError> for AssembleError {
+    fn from(e: PreprocessorError) -> Self {
+        AssembleError::Preprocessor(e)
     }
 }
 

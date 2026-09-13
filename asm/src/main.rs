@@ -13,7 +13,14 @@ fn main() {
         std::process::exit(1)
     });
 
-    let assembled = asm::assemble(&source).unwrap_or_else(|e| {
+    let source_pathbuf = PathBuf::from(&source_path);
+    let base_dir = source_pathbuf.parent().expect("source path has no parent dir");
+    let preprocessed = asm::preprocessor::expand(&source, base_dir, None).unwrap_or_else(|e| {
+        eprintln!("Error during preprocessing: {:?}", e);
+        std::process::exit(1)
+    });
+
+    let assembled = asm::assemble(&preprocessed).unwrap_or_else(|e| {
         eprintln!("Error during assembly: {:?}", e);
         std::process::exit(1)
     });
