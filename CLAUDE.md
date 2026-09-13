@@ -27,11 +27,19 @@ is.
 
 - Keep the VM minimal — every instruction and register should earn its place.
 - No GUI — terminal/serial interface only.
-- No memory protection for now — add it only if it becomes necessary.
 - Prefer designing our own formats (filesystem, binary format) over copying
   existing ones, so every byte is understood.
 - SPEC.md is the single source of truth for architecture, instruction set,
   memory map, and filesystem design.
+- Simple first, then add complexity once you can *see* why it's needed. The
+  goal is discovery, not emulation of a known design.
+- The OS should be real. Each piece — boot, scheduler, context switch — should
+  be genuinely implemented and fully explainable, not approximated.
+- Memory protection is planned but postponed until after Ikari; add it when
+  there is something worth protecting.
+- Known limitation: `hlt` is currently honoured unconditionally by the VM. In
+  a real processor it is a privileged instruction; user-mode `hlt` should
+  fault. This will be addressed when privilege levels are added.
 
 ## Roadmap
 
@@ -41,34 +49,47 @@ is.
 4. ✅ Minimal OS kernel with write syscall
 5. ✅ Storage device + disk loader
 6. ✅ Filesystem (BlissFS)
-7. 🔄 Interactive shell (Ikari)
+7. ✅ Stack + calling convention (BALR, pseudo-ops, register ABI)
+8. ✅ Syscall dispatcher (write + read, trap handler)
+9. 🔄 Standard library + assembler includes
+10. ⬜ Real OS — boot process, process model, scheduler, exit/exec syscalls
+11. ⬜ Ikari (interactive shell)
+12. ⬜ Memory protection + privilege levels
+13. ⬜ Gendo (compiled language targeting Bliss ISA)
 
 ## Current Focus
 
-The next goal is Ikari — an interactive shell that reads commands from serial
-input and executes them. Before writing the shell itself, two prerequisites are
-worth addressing first:
+**Standard library + assembler includes (Phase 3 — in progress).**
 
-**Stack + calling convention (Phase 1 — in progress).** The ISA needs one new
-instruction, `BALR rd, rs` (branch-and-link to register), to make subroutine
-returns possible. Once that is in the VM and assembler, five pseudo-instructions
-follow: `PUSH`, `POP`, `CALL`, `RET`, and `JMP`. The kernel then initialises SP
-to `0x1FFC` at boot. Register convention: r0 is assembler scratch (always
-clobberable), r1–r7 are caller-saved, r8–r12 are callee-saved, r13 is SP,
-r14 is LR. Full details in SPEC.md.
+The assembler needs a `.include "file.asm"` directive. Implementation: before
+the first pass, recursively expand includes by splicing file contents in at the
+point of the directive, producing one flat line stream for the existing two-pass
+assembler. No changes to the assembler itself are required.
 
-**Proper syscall dispatch (Phase 2).** The trap handler currently assumes every
-trap is a write syscall. A real dispatcher reads `cause` and `r0` (syscall
-number) and branches to the right handler. The shell needs at minimum write (1)
-and read (2) — read blocking on a byte from the serial RX port.
+`stdlib.asm` is the first included file. Initial contents: `stdlib_readline` —
+reads chars via `sys_read` into a caller-supplied buffer, returns on `\n`,
+gives back length. End goal: `user.asm` uses `stdlib_readline` rather than
+doing it inline.
 
-Once those two are in place, the shell can be built without running into dead
-ends. After the shell is working, remaining loose ends to address include:
+**Real OS — boot, process model, scheduler (Phase 4).**
 
-- Exception handling (invalid instruction, out-of-bounds, etc.)
-- Assembly imports/includes for a small standard library (division, string ops)
-- A cleaner kernel boot model (the current kernel is instructive but rough)
-- Memory protection — user code can currently access any address including MMIO
-  and kernel memory; worth adding once the shell gives us something worth protecting
-- Gendo — a small compiled language targeting the Bliss ISA; a natural next step
-  once the full stack (VM, assembler, OS, shell) is solid
+Before Ikari, the kernel needs to become a real operating system:
+
+- A genuine boot process: the CPU starts at a fixed address; the kernel sets
+  itself up, then explicitly hands control to user space.
+- A process table: fixed-size array of slots, each holding saved registers,
+  PC, SP, and status.
+- Cooperative scheduling to start (switch only on `exit` or `yield`); add
+  preemption once the VM has a timer interrupt and you can see why it's needed.
+- New syscalls: `exit` (0), `exec` (load a named file from disk into a process
+  slot and schedule it), `yield`. Disk access for user programs goes through
+  syscalls — no direct MMIO.
+- Each process gets its own stack region; the memory map will need updating.
+- Argument passing convention: r1 = argc, r2 = pointer to argv array.
+
+**Ikari (Phase 5).**
+
+With stdlib and a real process model in place, Ikari is mostly assembly:
+print a prompt, call `stdlib_readline`, parse the result (split on spaces,
+argv[0] is the command), call `exec`. Programs live on disk (e.g. `/bin/echo`)
+and are loaded by the kernel on `exec`.
