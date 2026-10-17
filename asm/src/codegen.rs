@@ -25,7 +25,7 @@ pub enum CodegenError {
     },
 }
 
-fn build_symbol_table(items: &[Item]) -> Result<HashMap<String, u32>, CodegenError> {
+fn build_symbol_table(items: &[Item], pic: bool) -> Result<HashMap<String, u32>, CodegenError> {
     let mut current_address = 0;
     let mut symbol_table: HashMap<String, u32> = HashMap::new();
 
@@ -34,8 +34,9 @@ fn build_symbol_table(items: &[Item]) -> Result<HashMap<String, u32>, CodegenErr
             Item::Label(name) => {
                 symbol_table.insert(name.clone(), current_address);
             }
-            Item::Instruction { mnemonic, .. } => {
+            Item::Instruction { mnemonic, operands } => {
                 current_address += match mnemonic.as_str() {
+                    "li" if pic && matches!(operands.get(1), Some(Operand::Label(_))) => 16,
                     "li" => 8,
                     "push" => 12,
                     "pop" => 12,
@@ -49,6 +50,7 @@ fn build_symbol_table(items: &[Item]) -> Result<HashMap<String, u32>, CodegenErr
                 "word" => current_address += 4 * values.len() as u32,
                 "byte" | "str" => current_address += values.len() as u32,
                 "org" => current_address = values[0] as u32,
+                "space" => current_address += values[0] as u32,
                 _ => (),
             },
         }
@@ -173,11 +175,7 @@ fn encode_rr_instr(
     Ok(vec![enc_rr(op, dst as u32, src as u32)])
 }
 
-fn encode_r_instr(
-    op: u32,
-    mnemonic: &str,
-    operands: &[Operand],
-) -> Result<Vec<u32>, CodegenError> {
+fn encode_r_instr(op: u32, mnemonic: &str, operands: &[Operand]) -> Result<Vec<u32>, CodegenError> {
     check_operand_count(mnemonic, operands, 1)?;
     let rs = expect_reg(operands, 0, mnemonic)?;
     Ok(vec![enc_r(op, rs as u32)])
@@ -210,9 +208,25 @@ fn encode_li(
     mnemonic: &str,
     operands: &[Operand],
     symbols: &HashMap<String, u32>,
+    current_address: u32,
+    pic: bool,
 ) -> Result<Vec<u32>, CodegenError> {
     check_operand_count(mnemonic, operands, 2)?;
     let dst = expect_reg(operands, 0, mnemonic)?;
+
+    if pic && let Operand::Label(name) = &operands[1] {
+        let sym = symbols
+            .get(name)
+            .ok_or(CodegenError::UndefinedLabel(name.clone()))?;
+        let offset = (*sym as i32).wrapping_sub((current_address + 4) as i32);
+        return Ok(vec![
+            enc_bal(dst as u32, 4),
+            enc_ri(0x04, Register::R0 as u32, (offset as u32 & 0xFFFF) as u16),
+            enc_ri(0x05, Register::R0 as u32, (offset as u32 >> 16) as u16),
+            enc_rrr(0x0C, dst as u32, dst as u32, Register::R0 as u32),
+        ]);
+    }
+
     let imm = match &operands[1] {
         Operand::Imm(i) => Ok(*i),
         Operand::Label(name) => symbols
@@ -414,6 +428,7 @@ fn encode_instruction(
     operands: &[Operand],
     current_address: u32,
     symbols: &HashMap<String, u32>,
+    pic: bool,
 ) -> Result<Vec<u32>, CodegenError> {
     match mnemonic {
         "hlt" => encode_nullary(0x00, mnemonic, operands),
@@ -422,7 +437,7 @@ fn encode_instruction(
         "ldi16" => encode_ri_instr(0x03, mnemonic, operands),
         "ldi32l" => encode_ri_instr(0x04, mnemonic, operands),
         "ldi32h" => encode_ri_instr(0x05, mnemonic, operands),
-        "li" => encode_li(mnemonic, operands, symbols),
+        "li" => encode_li(mnemonic, operands, symbols, current_address, pic),
         "ldm8" => encode_rri_instr(0x06, mnemonic, operands),
         "ldm16" => encode_rri_instr(0x07, mnemonic, operands),
         "ldm32" => encode_rri_instr(0x08, mnemonic, operands),
@@ -461,7 +476,11 @@ fn encode_instruction(
     }
 }
 
-fn emit(items: &[Item], symbols: &HashMap<String, u32>) -> Result<Vec<u8>, CodegenError> {
+fn emit(
+    items: &[Item],
+    symbols: &HashMap<String, u32>,
+    pic: bool,
+) -> Result<Vec<u8>, CodegenError> {
     let mut output: Vec<u8> = Vec::new();
     let mut current_address: u32 = 0;
 
@@ -484,10 +503,14 @@ fn emit(items: &[Item], symbols: &HashMap<String, u32>) -> Result<Vec<u8>, Codeg
                 "org" => {
                     current_address = values[0] as u32;
                 }
+                "space" => {
+                    output.resize(output.len() + values[0] as usize, 0);
+                    current_address += values[0] as u32;
+                }
                 _ => return Err(CodegenError::UnknownDirective(name.clone())),
             },
             Item::Instruction { mnemonic, operands } => {
-                let words = encode_instruction(mnemonic, operands, current_address, symbols)?;
+                let words = encode_instruction(mnemonic, operands, current_address, symbols, pic)?;
                 for word in &words {
                     output.extend_from_slice(&word.to_be_bytes());
                 }
@@ -499,9 +522,9 @@ fn emit(items: &[Item], symbols: &HashMap<String, u32>) -> Result<Vec<u8>, Codeg
     Ok(output)
 }
 
-pub fn codegen(items: &[Item]) -> Result<Vec<u8>, CodegenError> {
-    let symbols = build_symbol_table(items)?;
-    emit(items, &symbols)
+pub fn codegen(items: &[Item], pic: bool) -> Result<Vec<u8>, CodegenError> {
+    let symbols = build_symbol_table(items, pic)?;
+    emit(items, &symbols, pic)
 }
 
 #[cfg(test)]
@@ -543,7 +566,7 @@ mod tests {
     #[test]
     fn encode_hlt() {
         assert_eq!(
-            codegen(&[instr("hlt", vec![])]).unwrap(),
+            codegen(&[instr("hlt", vec![])], false).unwrap(),
             bytes_of(&[0x00 << 26])
         );
     }
@@ -555,13 +578,13 @@ mod tests {
             vec![reg(Register::R2), reg(Register::R3), reg(Register::R1)],
         )];
         let expected = (0x0C_u32 << 26) | (2 << 22) | (3 << 18) | (1 << 14);
-        assert_eq!(codegen(&items).unwrap(), bytes_of(&[expected]));
+        assert_eq!(codegen(&items, false).unwrap(), bytes_of(&[expected]));
     }
 
     #[test]
     fn encode_ecall() {
         assert_eq!(
-            codegen(&[instr("ecall", vec![])]).unwrap(),
+            codegen(&[instr("ecall", vec![])], false).unwrap(),
             bytes_of(&[0x1D << 26])
         );
     }
@@ -573,7 +596,7 @@ mod tests {
             vec![reg(Register::R1), ctrl_reg(ControlReg::Cause)],
         )];
         let expected = (0x1F << 26) | (1 << 22) | (2 << 18);
-        assert_eq!(codegen(&items).unwrap(), bytes_of(&[expected]));
+        assert_eq!(codegen(&items, false).unwrap(), bytes_of(&[expected]));
     }
 
     #[test]
@@ -583,13 +606,13 @@ mod tests {
             vec![ctrl_reg(ControlReg::Cause), reg(Register::R1)],
         )];
         let expected = (0x20 << 26) | (2 << 22) | (1 << 18);
-        assert_eq!(codegen(&items).unwrap(), bytes_of(&[expected]));
+        assert_eq!(codegen(&items, false).unwrap(), bytes_of(&[expected]));
     }
 
     #[test]
     fn encode_li_expands_to_two_words() {
         let items = vec![instr("li", vec![reg(Register::R0), imm(0xDEAD_BEEF)])];
-        let bytes = codegen(&items).unwrap();
+        let bytes = codegen(&items, false).unwrap();
         assert_eq!(bytes.len(), 8);
         let lo_word = u32::from_be_bytes(bytes[0..4].try_into().unwrap());
         let hi_word = u32::from_be_bytes(bytes[4..8].try_into().unwrap());
@@ -607,7 +630,7 @@ mod tests {
                 vec![reg(Register::R0), reg(Register::R1), label("target")],
             ),
         ];
-        let bytes = codegen(&items).unwrap();
+        let bytes = codegen(&items, false).unwrap();
         // beq is at address 4; target is at address 0; offset = 0 - 4 = -4
         let beq_word = u32::from_be_bytes(bytes[4..8].try_into().unwrap());
         let offset_field = ((beq_word << 14) as i32) >> 14;
@@ -620,7 +643,10 @@ mod tests {
             name: "word".to_string(),
             values: vec![0xDEAD_BEEF],
         }];
-        assert_eq!(codegen(&items).unwrap(), vec![0xDE, 0xAD, 0xBE, 0xEF]);
+        assert_eq!(
+            codegen(&items, false).unwrap(),
+            vec![0xDE, 0xAD, 0xBE, 0xEF]
+        );
     }
 
     #[test]
@@ -630,7 +656,7 @@ mod tests {
             vec![reg(Register::R0), reg(Register::R1), label("nowhere")],
         )];
         assert!(matches!(
-            codegen(&items),
+            codegen(&items, false),
             Err(CodegenError::UndefinedLabel(name)) if name == "nowhere"
         ));
     }
@@ -639,7 +665,7 @@ mod tests {
     fn error_immediate_out_of_range() {
         let items = vec![instr("ldi16", vec![reg(Register::R0), imm(0x10000)])];
         assert!(matches!(
-            codegen(&items),
+            codegen(&items, false),
             Err(CodegenError::ImmediateOutOfRange {
                 value: 0x10000,
                 bits: 16
@@ -651,7 +677,7 @@ mod tests {
     fn error_wrong_number_of_operands() {
         let items = vec![instr("add", vec![reg(Register::R0)])];
         assert!(matches!(
-            codegen(&items),
+            codegen(&items, false),
             Err(CodegenError::WrongNumberOfOperands {
                 expected: 3,
                 got: 1,
@@ -667,7 +693,7 @@ mod tests {
             vec![imm(0), reg(Register::R0), reg(Register::R1)],
         )];
         assert!(matches!(
-            codegen(&items),
+            codegen(&items, false),
             Err(CodegenError::WrongOperandType { position: 0, .. })
         ));
     }
@@ -680,7 +706,7 @@ mod tests {
             Item::Label("after".to_string()),
             instr("hlt", vec![]),
         ];
-        let symbols = build_symbol_table(&items).unwrap();
+        let symbols = build_symbol_table(&items, false).unwrap();
         assert_eq!(symbols["after"], 8);
     }
 
@@ -690,7 +716,7 @@ mod tests {
             "ldm32",
             vec![reg(Register::R0), memref(Register::R1, -4)],
         )];
-        let bytes = codegen(&items).unwrap();
+        let bytes = codegen(&items, false).unwrap();
         let word = u32::from_be_bytes(bytes[0..4].try_into().unwrap());
         let offset_field = ((word << 14) as i32) >> 14;
         assert_eq!(offset_field, -4);

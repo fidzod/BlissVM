@@ -20,13 +20,13 @@ fn run_to_halt(bytes: &[u8]) -> Vm {
 
 #[test]
 fn hlt_halts_immediately() {
-    let vm = run_to_halt(&assemble("hlt").unwrap());
+    let vm = run_to_halt(&assemble("hlt", false).unwrap());
     assert_eq!(vm.reg(Register::R0), 0);
 }
 
 #[test]
 fn li_loads_32bit_immediate() {
-    let vm = run_to_halt(&assemble("li r0, 0xDEADBEEF\nhlt").unwrap());
+    let vm = run_to_halt(&assemble("li r0, 0xDEADBEEF\nhlt", false).unwrap());
     assert_eq!(vm.reg(Register::R0), 0xDEAD_BEEF);
 }
 
@@ -38,7 +38,7 @@ fn add_two_registers() {
         add r2, r0, r1
         hlt
     ";
-    let vm = run_to_halt(&assemble(src).unwrap());
+    let vm = run_to_halt(&assemble(src, false).unwrap());
     assert_eq!(vm.reg(Register::R2), 42);
 }
 
@@ -53,7 +53,7 @@ fn countdown_loop_with_branch() {
           bne r0, r2, loop
         hlt
     ";
-    let vm = run_to_halt(&assemble(src).unwrap());
+    let vm = run_to_halt(&assemble(src, false).unwrap());
     assert_eq!(vm.reg(Register::R0), 0);
 }
 
@@ -66,7 +66,7 @@ fn bal_jumps_and_saves_return_address() {
           li r0, 42
           hlt
     ";
-    let vm = run_to_halt(&assemble(src).unwrap());
+    let vm = run_to_halt(&assemble(src, false).unwrap());
     assert_eq!(vm.reg(Register::R0), 42);
     assert_eq!(vm.reg(Register::LR), 4);
 }
@@ -80,7 +80,7 @@ fn store_and_load_roundtrip() {
         ldm32 r2, [r0]
         hlt
     ";
-    let vm = run_to_halt(&assemble(src).unwrap());
+    let vm = run_to_halt(&assemble(src, false).unwrap());
     assert_eq!(vm.reg(Register::R2), 0xABCD);
 }
 
@@ -96,7 +96,7 @@ fn ecall_eret_mfcr_mtcr() {
           mfcr r1, epc
           eret
     ";
-    let vm = run_to_halt(&assemble(src).unwrap());
+    let vm = run_to_halt(&assemble(src, false).unwrap());
     assert_eq!(vm.reg(Register::R1), 16);
     assert_eq!(vm.reg(Register::PC), 20);
     assert_eq!(vm.mode(), Mode::User);

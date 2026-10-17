@@ -1,4 +1,4 @@
-const MEMORY_SIZE: usize = 1024 * 16;
+const MEMORY_SIZE: usize = 1024 * 40;
 
 pub struct Memory([u8; MEMORY_SIZE]);
 

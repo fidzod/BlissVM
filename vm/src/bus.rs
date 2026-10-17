@@ -38,11 +38,10 @@ impl Bus {
     fn mmio_read(&mut self, addr: u32) -> u8 {
         if addr == RX {
             let mut buf = [0u8; 1];
-            std::io::stdin()
-                .lock()
-                .read_exact(&mut buf)
-                .expect("Could not read from stdin");
-            buf[0]
+            match std::io::stdin().lock().read_exact(&mut buf) {
+                Ok(()) => buf[0],
+                Err(_) => 0,
+            }
         } else {
             0
         }

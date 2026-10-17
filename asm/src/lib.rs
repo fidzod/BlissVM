@@ -40,8 +40,8 @@ impl From<PreprocessorError> for AssembleError {
     }
 }
 
-pub fn assemble(src: &str) -> Result<Vec<u8>, AssembleError> {
+pub fn assemble(src: &str, pic: bool) -> Result<Vec<u8>, AssembleError> {
     let tokens = tokeniser::tokenise(src)?;
     let items = parser::parse(tokens)?;
-    Ok(codegen::codegen(&items)?)
+    Ok(codegen::codegen(&items, pic)?)
 }
