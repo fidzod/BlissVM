@@ -9,8 +9,8 @@ run() { "$@" 2>&1 | sed 's/^/[boot.sh] /'; }
 
 run cargo build --quiet
 
-run target/debug/asm os/echo.asm   -pic
-run target/debug/asm os/init.asm   -pic
+run target/debug/asm os/echo.asm    -pic
+run target/debug/asm os/init.asm    -pic
 run target/debug/asm os/kernel.asm
 
 run target/debug/mkfs disk.img os/init.bin os/echo.bin

@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     println!(
-        "successfully wrote [{}] to {}",
+        "Successfully wrote [{}] to {}",
         input_files.join(", "),
         output_path
     );
