@@ -1,5 +1,5 @@
 ; stdlib.asm
-; divmod, readline, strcmp, strlen, str_from_int, str_to_int
+; divmod, memcpy, print, println, readline, strcmp, strlen, str_from_int, str_to_int
 
 stdlib_divmod:
   ; * stdlib_divmod
@@ -37,6 +37,107 @@ stdlib_divmod_ret:
 
   ldi16 r0, 0                        ; ret 0
   ret
+
+stdlib_memcpy:
+  ; * stdlib_memcpy
+  ; arguments:
+  ;   r1 = source pointer
+  ;   r2 = destination pointer
+  ;   r3 = byte count
+  ; returns:
+  ;   (none)
+  ldi16 r5, 0                        ; r5 = zero sentinel
+
+stdlib_memcpy_loop:
+  beq r3, r5, stdlib_memcpy_ret      ; stop when count == 0
+
+  ldm8 r4, [r1]                      ; r4 = *src
+  str8 r4, [r2]                      ; *dst = r4
+
+  ldi16 r0, 1
+  add r1, r1, r0                     ; src++
+  add r2, r2, r0                     ; dst++
+  sub r3, r3, r0                     ; count--
+
+  jmp stdlib_memcpy_loop
+
+stdlib_memcpy_ret:
+  ret
+
+stdlib_print:
+  ; * stdlib_print
+  ; arguments:
+  ;   r1 = &str (null-terminated)
+  ; returns:
+  ;   r0 = number of bytes written
+  push lr
+  push r8
+
+  mov r8, r1                         ; save str pointer (strlen clobbers r1)
+  call stdlib_strlen                 ; r0 = strlen(str)
+
+  mov r2, r0                         ; r2 = byte count
+  mov r1, r8                         ; r1 = str pointer
+  ldi16 r0, 1                        ; sys_write
+  ecall
+
+  pop r8
+  pop lr
+  ret
+
+.define STDLIB_PRINTLN_BUFF_SZ 128
+stdlib_println:
+  ; * stdlib_println
+  ; arguments:
+  ;  r1 = &str (max len: 128 bytes)
+  ; returns:
+  ;  r0 = 0: success, 1: err(exceeds_max_len)
+  push lr
+  push r8
+  push r9
+
+  mov r8, r1                         ; save r1 (gets clobbered by strlen)
+
+  call stdlib_strlen                 ; r0 = strlen(*r1)
+  mov r9, r0                         ; save in r9
+
+  mov r1, r9                         ; check for err(exceeds_max_len)
+  ldi16 r0, 1
+  add r1, r1, r0
+  ldi16 r0, STDLIB_PRINTLN_BUFF_SZ
+  blt r0, r1, stdlib_println_err_1   ; if len + 1 > 128 err
+
+  mov r1, r8                         ; r1 = r8 (src pointer)
+  li r2, stdlib_println_buff         ; r2 = &stdlib_println_buff (dest pointer)
+  mov r3, r9                         ; r3 = strlen(*r1)
+  call stdlib_memcpy                 ; copy string into buffer
+
+  li r1, stdlib_println_buff
+  mov r0, r9
+  add r1, r1, r0
+  ldi16 r0, 10                       ; '\n'
+  str8 r0, [r1]                      ; buff[strlen(*r1)] = '\n'
+
+  li r1, stdlib_println_buff
+  ldi16 r0, 1                        ; sys_write
+  mov r2, r9
+  add r2, r2, r0                     ; add 1 to len to account for '\n'
+  ecall
+
+  pop r9
+  pop r8
+  pop lr
+  ldi16 r0, 0
+  ret
+
+stdlib_println_err_1:
+  pop r9
+  pop r8
+  pop lr
+  ldi16 r0, 1
+  ret
+
+stdlib_println_buff: .space 128
 
 stdlib_readline:
   ; * stdlib_readline

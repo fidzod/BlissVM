@@ -23,12 +23,13 @@ load/store architecture, 16 general-purpose registers, comparison-in-branch
 | OS kernel         | Working     |
 | Storage device    | Working     |
 | Filesystem        | Working     |
-| Shell             | In Progress |
+| Shell             | In-Progress |
 
 ## Crates
 
-- **`bliss`** — the VM library and runner binary (`bliss <file.bin>`)
+- **`bliss`** — the VM library and runner binary (`bliss <file.bin> [disk.img]`)
 - **`asm`** — the assembler library and CLI (`asm <file.asm>` → `file.bin`)
+- **`blissfs`** — the filesystem library and the `mkfs` binary (`mkfs <out.img> <file>...`)
 
 ## Quick start
 
@@ -40,6 +41,12 @@ cargo build --release
 
 # Run it
 ./target/release/bliss examples/hello.bin
+```
+
+To build and boot the OS instead (kernel + disk image + user programs):
+
+```sh
+./boot.sh
 ```
 
 ## AI usage

@@ -185,8 +185,8 @@ branches (r1=rs1, r2=rs2, imm=signed PC-relative offset, ±512 KB reach)
 LDI16/LDI32L/LDI32H (16-bit imm, upper bits unused), BAL (22-bit signed PC-relative offset, ±8 MB reach)
 
 **C — control register access** `| 6: opcode | 4: rd/cr | 4: cr/rs | 18: — |`
-MFCR (rd=destination GPR, cr=control register index 0–3),
-MTCR (cr=control register index 0–3, rs=source GPR)
+MFCR (rd=destination GPR, cr=control register index 0–4),
+MTCR (cr=control register index 0–4, rs=source GPR)
 
 **N — no operands** `| 6: opcode | 26: — |`
 HLT, NOP, ECALL, ERET
@@ -232,6 +232,21 @@ HLT, NOP, ECALL, ERET
 |  34 | 0x22 | `BR`     | R      |
 
 Opcodes 35–63 are reserved.
+
+## Assembler Directives
+
+Preprocessor directives run before parsing; the rest emit data or control layout
+during assembly.
+
+| Directive            | Effect                                                        |
+|-----------------------|----------------------------------------------------------------|
+| `.include "file"`    | Preprocessor: inline the named file's contents                |
+| `.define NAME value` | Preprocessor: textual substitution of `NAME` with `value`     |
+| `.word v, ...`       | Emit each value as a 4-byte word                               |
+| `.byte v, ...`       | Emit each value as a single byte                               |
+| `.str "text"`        | Emit `text` as bytes with an implicit trailing null byte       |
+| `.space n`           | Emit `n` zero bytes                                             |
+| `.org addr`          | Set the assembler's current address to `addr`                  |
 
 ## Pseudo-instructions (assembler-expanded)
 

@@ -92,7 +92,7 @@ boundaries (MSB left).
 \textbf{I}: load/store \code{r1}=reg, \code{r2}=base, \code{imm}=offset;
 branch \code{r1},\code{r2}=operands, \code{imm}=signed PC-rel ($\pm$512\,KB).\ \
 \textbf{U}: \code{BAL} \code{imm}=signed PC-rel ($\pm$8\,MB).\ \
-\textbf{C}: \code{cr}=index 0--3.}
+\textbf{C}: \code{cr}=index 0--4.}
 
 % ===========================================================================
 \section{Opcodes}
@@ -111,7 +111,7 @@ branch \code{r1},\code{r2}=operands, \code{imm}=signed PC-rel ($\pm$512\,KB).\ \
 \code{0x0B} & \code{STR32}  & I & \code{0x21} & \code{BALR}  & R \\
 \code{0x0C} & \code{ADD}    & R & \code{0x22} & \code{BR}    & R \\
 \code{0x0D} & \code{SUB}    & R & \code{0x1D} & \code{ECALL} & N \\
-\code{0x0D} & \code{SUB}    & R & \code{0x1E} & \code{ERET}  & N \\
+&&& \code{0x1E} & \code{ERET}  & N \\
 \code{0x0E} & \code{MUL}    & R & \code{0x1F} & \code{MFCR}  & C \\
 \code{0x0F} & \code{AND}    & R & \code{0x20} & \code{MTCR}  & C \\
 \code{0x10} & \code{OR}     & R & & & \\
@@ -202,6 +202,13 @@ clobbers \code{r14}; \code{PUSH}/\code{POP}/\code{JMP lbl}/\code{ADDI} clobber
 \code{r0}. No stack traffic on \code{CALL}/\code{RET}: a non-leaf function does
 \code{push lr} first and \code{pop lr} before \code{RET} (same for \code{r8--r12}
 if used); leaf functions need neither.}
+
+% ===========================================================================
+\section{Directives}
+\code{.include "f"} inline file $\cdot$ \code{.define N v} text substitution
+$\cdot$ \code{.word}/\code{.byte} emit values $\cdot$ \code{.str "s"} emit
+bytes + null $\cdot$ \code{.space n} emit $n$ zero bytes $\cdot$ \code{.org a}
+set address.
 
 % ===========================================================================
 \section{BlissFS}

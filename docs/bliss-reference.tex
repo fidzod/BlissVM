@@ -74,7 +74,7 @@ All sixteen registers are 32 bits wide. Three carry an architected role:
 
 \subsection{Control registers}
 
-Four control registers sit alongside the general-purpose file and are accessed
+Five control registers sit alongside the general-purpose file and are accessed
 only with \code{MFCR} / \code{MTCR}.
 
 \begin{center}
@@ -319,7 +319,7 @@ PC-relative offset ($\pm$512\,KB reach).
 \end{bytefield}
 \end{center}
 \noindent \code{MFCR}: \code{rd} = destination GPR, \code{cr} = control register
-index 0--3. \code{MTCR}: \code{cr} = control register index 0--3, \code{rs} =
+index 0--4. \code{MTCR}: \code{cr} = control register index 0--4, \code{rs} =
 source GPR.
 
 \subsection*{N --- no operands}
@@ -385,6 +385,29 @@ source GPR.
 \end{longtable}
 \end{center}
 \noindent Opcodes 35--63 are reserved.
+
+% ===========================================================================
+\section{Assembler directives}
+% ===========================================================================
+
+Preprocessor directives run before parsing; the rest emit data or control
+layout during assembly.
+
+\begin{center}
+\begin{tabular}{@{}L{3.6cm} L{8.6cm}@{}}
+\toprule
+\textbf{Directive} & \textbf{Effect} \\
+\midrule
+\code{.include "file"}    & Preprocessor: inline the named file's contents \\
+\code{.define NAME value} & Preprocessor: textual substitution of \code{NAME} with \code{value} \\
+\code{.word v, ...}       & Emit each value as a 4-byte word \\
+\code{.byte v, ...}       & Emit each value as a single byte \\
+\code{.str "text"}        & Emit \code{text} as bytes with an implicit trailing null byte \\
+\code{.space n}           & Emit \code{n} zero bytes \\
+\code{.org addr}          & Set the assembler's current address to \code{addr} \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 % ===========================================================================
 \section{Pseudo-instructions}
@@ -518,7 +541,7 @@ User programs trap into the kernel with \code{ECALL}.
 0 & \code{exit}  & ---     & ---        & (does not return) \\
 1 & \code{write} & buf ptr & byte count & \code{r0} = bytes written \\
 2 & \code{read}  & ---     & ---        & \code{r0} = byte read (blocks until available) \\
-3 & \code{exec}  & filename ptr & ---   & \code{r0} = pid (switches to child; returns when child exits) \\
+3 & \code{exec}  & filename ptr & ---   & \code{r0} = pid of new process \\
 4 & \code{yield} & ---     & ---        & \code{r0} = 0 (returns when rescheduled) \\
 \bottomrule
 \end{tabular}
@@ -616,8 +639,9 @@ Writes a string to the serial TX port one byte at a time.
 
 \subsection{A user-mode program}
 
-Loaded by the kernel at \code{0x2000}, prints via the \code{write} syscall.
+Loaded by the kernel at \code{0x2000}, prints via the \code{write} syscall and
+\code{exec}s a second process.
 
-\lstinputlisting{../os/user.asm}
+\lstinputlisting{../os/init.asm}
 
 \end{document}
